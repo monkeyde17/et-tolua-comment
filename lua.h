@@ -20,7 +20,7 @@
 #define LUA_RELEASE	"Lua 5.1.4"
 #define LUA_VERSION_NUM	501
 #define LUA_COPYRIGHT	"Copyright (C) 1994-2008 Lua.org, PUC-Rio"
-#define LUA_AUTHORS 	"R. Ierusalimschy, L. H. de Figueiredo & W. Celes"
+#define LUA_AUTHORS	"R. Ierusalimschy, L. H. de Figueiredo & W. Celes"
 
 
 /* mark for precompiled code (`<esc>Lua') */
@@ -245,7 +245,7 @@ LUA_API void lua_setallocf (lua_State *L, lua_Alloc f, void *ud);
 
 
 
-/* 
+/*
 ** ===============================================================
 ** some useful macros
 ** ===============================================================
@@ -253,6 +253,10 @@ LUA_API void lua_setallocf (lua_State *L, lua_Alloc f, void *ud);
 
 #define lua_pop(L,n)		lua_settop(L, -(n)-1)
 
+/**
+ * 创建一个表，不指定数组，哈希表长度
+ * 即lua_createtable(L, 0, 0)
+ */
 #define lua_newtable(L)		lua_createtable(L, 0, 0)
 
 #define lua_register(L,n,f) (lua_pushcfunction(L, (f)), lua_setglobal(L, (n)))
@@ -336,11 +340,16 @@ LUA_API const char *lua_getlocal (lua_State *L, const lua_Debug *ar, int n);
 LUA_API const char *lua_setlocal (lua_State *L, const lua_Debug *ar, int n);
 LUA_API const char *lua_getupvalue (lua_State *L, int funcindex, int n);
 LUA_API const char *lua_setupvalue (lua_State *L, int funcindex, int n);
-
 LUA_API int lua_sethook (lua_State *L, lua_Hook func, int mask, int count);
 LUA_API lua_Hook lua_gethook (lua_State *L);
 LUA_API int lua_gethookmask (lua_State *L);
 LUA_API int lua_gethookcount (lua_State *L);
+
+/* From Lua 5.2. */
+LUA_API void *lua_upvalueid (lua_State *L, int idx, int n);
+LUA_API void lua_upvaluejoin (lua_State *L, int idx1, int n1, int idx2, int n2);
+LUA_API int lua_loadx (lua_State *L, lua_Reader reader, void *dt,
+		       const char *chunkname, const char *mode);
 
 
 struct lua_Debug {
