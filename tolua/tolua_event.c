@@ -20,18 +20,33 @@
     * It stores, creating the corresponding table if needed,
     * the pair key/value in the corresponding ubox table
 */
+/**
+ *  期望：在栈顶包含键值对
+ *
+ *  @param L  状态机
+ *  @param lo 表位置
+ */
 static void storeatubox (lua_State* L, int lo)
 {
 #ifdef LUA_VERSION_NUM
+    /* 获得环境表 */
     lua_getfenv(L, lo);
-    if (lua_rawequal(L, -1, TOLUA_NOPEER)) {
+    if (lua_rawequal(L, -1, TOLUA_NOPEER)) { /* 若环境表不为 register */
         lua_pop(L, 1);
+        
+        /* 新建一个表 */
         lua_newtable(L);
+        
+        /* 将新建的表设置成lo处表的环境表 */
         lua_pushvalue(L, -1);
         lua_setfenv(L, lo);    /* stack: k,v,table  */
     };
+    /* 将环境表移到键值对前 */
+    /* 然后设置键值对 */
     lua_insert(L, -3);
     lua_settable(L, -3); /* on lua 5.1, we trade the "tolua_peers" lookup for a settable call */
+    
+    /* 将环境表出栈 */
     lua_pop(L, 1);
 #else
     /* stack: key value (to be stored) */
@@ -58,7 +73,7 @@ static void storeatubox (lua_State* L, int lo)
 */
 
 /**
- *  前提：元表在栈顶
+ *  前提：在栈顶有table和key
  *
  *  模块表__index对应的绑定的函数
  *
@@ -68,40 +83,43 @@ static void storeatubox (lua_State* L, int lo)
  */
 static int module_index_event (lua_State* L)
 {
-    /* 获取元表mt[".get"]的值 */
-    lua_pushstring(L,".get");
-    lua_rawget(L,-3);
+    /* 获取表table[".get"]的值 get_t */
+    lua_pushstring(L,".get");   /* stack : table key ".get" */
+    lua_rawget(L,-3);           /* stack : table key get_t */
     
     /* 是否是个表 */
     if (lua_istable(L,-1))
     {
-        lua_pushvalue(L,2);/* key */ /* stack : mt mt[".get"] ".get" */
-        lua_rawget(L,-2);       /* stack : mt mt[".get"] mt[".get"][".get"] */
+        lua_pushvalue(L,2);     /* stack : table key get_t key */
+        lua_rawget(L,-2);       /* stack : table key get_t get_t.key */
         /* 若是栈顶是一个c函数 */
         if (lua_iscfunction(L,-1))
         {
-            lua_call(L,0,1);    /* stack : mt mt[".get"] return_value */
+            lua_call(L,0,1);    /* stack : table key get_t return_value */
             return 1;
         }
         /* 若是一个表 */
         else if (lua_istable(L,-1))
-            return 1;           /* stack : mt mt[".get"] mt[".get"][".get"] */
+            return 1;           /* stack : table key get_t get_t.key */
     }
     /* call old index meta event */
-    if (lua_getmetatable(L,1))
+    /* 如果不是一个表，则查询第一个参数的元表 */
+    if (lua_getmetatable(L,1))  /* stack : table key get_t mt */
     {
+        /* 获取__index元方法 */
         lua_pushstring(L,"__index");
-        lua_rawget(L,-2);
-        lua_pushvalue(L,1);
-        lua_pushvalue(L,2);
-        if (lua_isfunction(L,-1))
+        lua_rawget(L,-2);       /* stack : table key get_t mt.__index */
+        
+        lua_pushvalue(L,1);     /* stack : table key get_t mt.__index table */
+        lua_pushvalue(L,2);     /* stack : table key get_t mt.__index table key */
+        if (lua_isfunction(L,-1)) /* 对于这个-1我只能猜想key和mt.index是同一种类型了 */
         {
-            lua_call(L,2,1);
+            lua_call(L,2,1);    /* stack : table key get_t return_val */
             return 1;
         }
         else if (lua_istable(L,-1))
         {
-            lua_gettable(L,-3);
+            lua_gettable(L,-3); /* stack : table key get_t mt.__index table mt.__index.key */
             return 1;
         }
     }
@@ -111,37 +129,48 @@ static int module_index_event (lua_State* L)
 
 /* Module newindex function
 */
+/**
+ *  前提：栈上有table，key，value
+ *
+ *  @param L 状态机
+ *
+ *  @return 0
+ */
 static int module_newindex_event (lua_State* L)
 {
     lua_pushstring(L,".set");
     lua_rawget(L,-4);
-    if (lua_istable(L,-1))
+    if (lua_istable(L,-1))      /* stack : table key value set_t */
     {
-        lua_pushvalue(L,2);  /* key */
-        lua_rawget(L,-2);
+        lua_pushvalue(L,2);     /* stack : table key value set_t key */
+        lua_rawget(L,-2);       /* stack : table key value set_t set_t.key */
         if (lua_iscfunction(L,-1))
         {
-            lua_pushvalue(L,1); /* only to be compatible with non-static vars */
-            lua_pushvalue(L,3); /* value */
-            lua_call(L,2,0);
+            /* only to be compatible with non-static vars */
+            lua_pushvalue(L,1); /* stack : table key value set_t func table */
+            /* value */
+            lua_pushvalue(L,3); /* stack : table key value set_t func table value */
+            lua_call(L,2,0);    /* stack : table key value set_t */
             return 0;
         }
     }
     /* call old newindex meta event */
     if (lua_getmetatable(L,1) && lua_getmetatable(L,-1))
     {
+        /* stack : t k v nil t_mt v_mt */
         lua_pushstring(L,"__newindex");
-        lua_rawget(L,-2);
+        lua_rawget(L,-2);       /* stack : t k v t_mt v_mt v_mt.__newindex */
         if (lua_isfunction(L,-1))
         {
             lua_pushvalue(L,1);
             lua_pushvalue(L,2);
-            lua_pushvalue(L,3);
-            lua_call(L,3,0);
+            lua_pushvalue(L,3); /* stack : t k v t_mt v_mt v_mt.__newindex t k v */
+            lua_call(L,3,0);    /* stack : t k v t_mt v_mt */
         }
     }
-    lua_settop(L,3);
-    lua_rawset(L,-3);
+    lua_settop(L,3);            /* stack : t k v */
+    /* t[k] = v */
+    lua_rawset(L,-3);           /* stack : t */
     return 0;
 }
 
@@ -149,21 +178,41 @@ static int module_newindex_event (lua_State* L)
     * If the object is a userdata (ie, an object), it searches the field in
     * the alternative table stored in the corresponding "ubox" table.
 */
+/**
+ *
+ *
+ *  @param L 状态机
+ *
+ *  @return 1 : 成功
+ *  @return 0 : 失败
+ */
 static int class_index_event (lua_State* L)
 {
+    /* 调用该函数时会调用改方法，并在栈中压入参数 */
+    // 例如 ：
+    // t.key -- 这个key不在t中，则会调用如下函数 __index(t, key) 或者 __index.key
+    
+    /* 获取栈中第一个参数的类型 */
     int t = lua_type(L,1);
-    if (t == LUA_TUSERDATA)
+    if (t == LUA_TUSERDATA) /* 若是用户数据 */
     {
         /* Access alternative table */
 #ifdef LUA_VERSION_NUM /* new macro on version 5.1 */
+        /* 对于lua5.1 */
+        /* 获得用户数据的环境表usr_env，并压入栈中 */
         lua_getfenv(L,1);
-        if (!lua_rawequal(L, -1, TOLUA_NOPEER)) {
+        /* usr_evn表是否是 TOLUA_NOPEER(就是register) */
+        if (!lua_rawequal(L, -1, TOLUA_NOPEER)) { /* 若不是，则为tolua_peers表 */
+            /* 将栈中的键入栈 */
             lua_pushvalue(L, 2); /* key */
+            /* 在tolua_peers表中查找 */
+            /* 即tolua_peers[key] */
             lua_gettable(L, -2); /* on lua 5.1, we trade the "tolua_peers" lookup for a gettable call */
             if (!lua_isnil(L, -1))
-                return 1;
+                return 1; /* 若不为空则返回 1 */
         };
 #else
+        /* 对于lua 5.2 来说就直接查找 register.tolua_peers */
         lua_pushstring(L,"tolua_peers");
         lua_rawget(L,LUA_REGISTRYINDEX);        /* stack: obj key ubox */
         lua_pushvalue(L,1);
@@ -176,17 +225,23 @@ static int class_index_event (lua_State* L)
                 return 1;
         }
 #endif
+        /* 栈中保留对象和键，其余清空 */
         lua_settop(L,2);                        /* stack: obj key */
         /* Try metatables */
+        /* 将对象的元表入栈 */
         lua_pushvalue(L,1);                     /* stack: obj key obj */
         while (lua_getmetatable(L,-1))
         {   /* stack: obj key obj mt */
             lua_remove(L,-2);                      /* stack: obj key mt */
+            /* 若键是一个数字 */
             if (lua_isnumber(L,2))                 /* check if key is a numeric value */
             {
                 /* try operator[] */
+                /* 在元表中访问元表中的 ".geti" 字段 */
                 lua_pushstring(L,".geti");
                 lua_rawget(L,-2);                      /* stack: obj key mt func */
+                
+                /* 若 ".geti" 字段的值是一个函数，则调用，参数为obj和key */
                 if (lua_isfunction(L,-1))
                 {
                     lua_pushvalue(L,1);
@@ -195,36 +250,43 @@ static int class_index_event (lua_State* L)
                     return 1;
                 }
             }
-            else
+            else /* 若是一个非数字的键 */
             {
+                /* 在 register 中再查询一次 */
                 lua_pushvalue(L,2);                    /* stack: obj key mt key */
                 lua_rawget(L,-2);                      /* stack: obj key mt value */
                 if (!lua_isnil(L,-1))
-                    return 1;
+                    return 1; /* 若找到该值，则返回 */
                 else
-                    lua_pop(L,1);
+                    lua_pop(L,1); /* 若找不到该值，则将这个nil出栈 */
                 /* try C/C++ variable */
+                
+                /* 将tolua_peers[".get"]入栈 */
                 lua_pushstring(L,".get");
                 lua_rawget(L,-2);                      /* stack: obj key mt tget */
                 if (lua_istable(L,-1))
                 {
+                    /* 在.get表中查找该键 */
                     lua_pushvalue(L,2);
                     lua_rawget(L,-2);                      /* stack: obj key mt value */
+                    /* 若找到的值是一个函数 */
                     if (lua_iscfunction(L,-1))
                     {
+                        /* 调用这个函数，参数是obj和key */
                         lua_pushvalue(L,1);
                         lua_pushvalue(L,2);
                         lua_call(L,2,1);
                         return 1;
                     }
-                    else if (lua_istable(L,-1))
+                    else if (lua_istable(L,-1)) /* 若找到的是一个表 */
                     {
                         /* deal with array: create table to be returned and cache it in ubox */
                         void* u = *((void**)lua_touserdata(L,1));
                         lua_newtable(L);                /* stack: obj key mt value table */
-                        lua_pushstring(L,".self");
-                        lua_pushlightuserdata(L,u);
-                        lua_rawset(L,-3);               /* store usertype in ".self" */
+                            /* 将.self字段设置成用户数据的地址 */
+                            lua_pushstring(L,".self");
+                            lua_pushlightuserdata(L,u);
+                            lua_rawset(L,-3);               /* store usertype in ".self" */
                         lua_insert(L,-2);               /* stack: obj key mt table value */
                         lua_setmetatable(L,-2);         /* set stored value as metatable */
                         lua_pushvalue(L,-1);            /* stack: obj key met table table */
@@ -235,16 +297,20 @@ static int class_index_event (lua_State* L)
                     }
                 }
             }
+            /* 若没有查找到，则在元表的元表中继续查找 */
             lua_settop(L,3);
         }
+        /* 递归查询完所有的元表之后还没找到则返回，并入栈nil */
         lua_pushnil(L);
         return 1;
     }
-    else if (t== LUA_TTABLE)
+    else if (t== LUA_TTABLE) /* 若第一个参数是一个表 */
     {
+        /* 这个时候栈中参数为 table key */
         module_index_event(L);
         return 1;
     }
+    /* 所有情况都没有找到，返回，并入栈nil */
     lua_pushnil(L);
     return 1;
 }
@@ -307,6 +373,7 @@ static int class_newindex_event (lua_State* L)
     }
     else if (t== LUA_TTABLE)
     {
+        /* stack : table key value */
         module_newindex_event(L);
     }
     return 0;
