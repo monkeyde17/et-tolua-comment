@@ -58,10 +58,13 @@ static void storeatubox (lua_State* L, int lo)
 */
 
 /**
- * 前提：元表在栈顶
+ *  前提：元表在栈顶
  *
- * __index对应的绑定的函数
+ *  模块表__index对应的绑定的函数
  *
+ *  @param L 状态机
+ *
+ *  @return 返回1
  */
 static int module_index_event (lua_State* L)
 {
@@ -326,6 +329,15 @@ static int class_call_event(lua_State* L) {
     return 0;
 };
 
+/**
+ *
+ *
+ *  @param L  状态机
+ *  @param op 操作
+ *
+ *  @return 1 : 成功
+ *  @return 0 : 出错
+ */
 static int do_operator (lua_State* L, const char* op)
 {
     if (lua_isuserdata(L,1))
@@ -476,15 +488,18 @@ TOLUA_API int class_gc_event (lua_State* L)
     * It expects the metatable on the top of the stack
 */
 /**
- * 前提：栈顶有元表
+ *  前提：栈顶有元表
  *
- * 设置栈顶元表的__index和__newindex字段
+ *  设置模块表的__index和__newindex字段
+ *
+ *  @param L 状态机
  */
 TOLUA_API void tolua_moduleevents (lua_State* L)
 {
     lua_pushstring(L,"__index");
     lua_pushcfunction(L,module_index_event);
     lua_rawset(L,-3);
+    
     lua_pushstring(L,"__newindex");
     lua_pushcfunction(L,module_newindex_event);
     lua_rawset(L,-3);
@@ -493,11 +508,10 @@ TOLUA_API void tolua_moduleevents (lua_State* L)
 /* Check if the object on the top has a module metatable
 */
 /**
- * 检查栈顶元素是否为一个模块元表
+ *  检查栈顶元素是否为一个模块元表
  * 
- * @return 是否为模块元表
- *      1 : 是
- *      0 : 否
+ *  @return 1 : 是
+ *  @return 0 : 否
  */
 TOLUA_API int tolua_ismodulemetatable (lua_State* L)
 {
@@ -521,9 +535,11 @@ TOLUA_API int tolua_ismodulemetatable (lua_State* L)
 */
 
 /**
- * 前提：元表在栈顶
+ *  前提：元表在栈顶
  *
- * 将c函数绑定到各个元方法
+ *  将c函数绑定到各个元方法
+ *
+ *  @param L 状态机
  */
 TOLUA_API void tolua_classevents (lua_State* L)
 {

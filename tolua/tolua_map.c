@@ -27,7 +27,13 @@
 */
 
 /**
- * 在全局注册表(register)中创建一个新的表，并把各个元方法注册到register中
+ *  在全局注册表(register)中创建一个新的表，并把各个元方法注册到register中
+ *
+ *  @param L    状态机
+ *  @param name 注册名称
+ *
+ *  @return 1 : 成功
+ *  @return 0 : 失败
  */
 static int tolua_newmetatable (lua_State* L, const char* name)
 {
@@ -60,6 +66,13 @@ static int tolua_newmetatable (lua_State* L, const char* name)
 /* Map super classes
     * It sets 'name' as being also a 'base', mapping all super classes of 'base' in 'name'
 */
+/**
+ *
+ *
+ *  @param L    状态机
+ *  @param name 子类
+ *  @param base 基类
+ */
 static void mapsuper (lua_State* L, const char* name, const char* base)
 {
     /* push registry.super */
@@ -132,6 +145,11 @@ static void mapsuper (lua_State* L, const char* name, const char* base)
 
 /* creates a 'tolua_ubox' table for base clases, and
 // expects the metatable and base metatable on the stack */
+/**
+ *  期望：
+ *
+ *  @param L 状态机
+ */
 static void set_ubox(lua_State* L) {
 
     /* mt basemt */
@@ -339,9 +357,42 @@ static int tolua_bnd_getpeer(lua_State* L) {
 /* static int class_gc_event (lua_State* L); */
 
 /**
- * tolua_open
- * 主要做了以下事情：
- * 1. 
+ *
+ *  主要在 register 中做了以下事情：
+ *
+ *      1. register.tolua_opened = true
+ *
+ *      2. register.tolua_value_root = {} -- TOLUA_VALUE_ROOT
+ *
+ *      3. register.tolua_peers = {__mode = "k"} -- for lua 5.1
+ *
+ *      4. register.tolua_ubox = {__mode = "v"}
+ *
+ *      5. register.tolua_super = {}
+ *
+ *      6. register.tolua_gc = {}
+ *
+ *      7. register.tolua_gc_event = cfunc_calss_gc_event(tolua_gc, tolua_super) do ... end
+ *
+ *      8. register.tolua_commonclass = {__index = .. , ... , __call = ..}
+ *
+ *  还有在 global 中做了以下事情：这些在lua中可以访问
+ *
+ *      1. global.tolua.type = cfunc
+ *
+ *      2. global.tolua.takeownership = cfunc
+ *
+ *      3. global.tolua.cast = cfunc
+ *
+ *      4. global.tolua.isnull = cfunc
+ *
+ *      5. global.tolua.inherit = cfunc
+ *
+ *      6. global.tolua.getpeer = cfunc
+ *
+ *      7. global.tolua.setpeer = cfunc
+ *
+ *  @param L 状态机
  */
 TOLUA_API void tolua_open (lua_State* L)
 {
@@ -524,12 +575,13 @@ TOLUA_API void tolua_usertype (lua_State* L, const char* type)
     * It pushes the module (or class) table on the stack
 */
 /**
- *  @param name 模块名称
+ *  将模块表入栈，或者查询模块表中的内容
  *
- *          若为空 : 返回全局表(global)
+ *  @param L    状态机
  *
- *          不为空 : 将global.name入栈
- *
+ *  @param name 名字空间，模块表
+ *  @param name 若为空 : 返回全局表(global)
+ *  @param name 不为空 : 将global.name入栈
  */
 TOLUA_API void tolua_beginmodule (lua_State* L, const char* name)
 {
@@ -548,9 +600,11 @@ TOLUA_API void tolua_beginmodule (lua_State* L, const char* name)
     * It pops the module (or class) from the stack
 */
 /**
- * 就是将模块元表出栈
+ *  就是将模块表出栈
  *
- * 即lua_pop(L, 1)
+ *  即lua_pop(L, 1)
+ *
+ *  @param L 状态机
  */
 TOLUA_API void tolua_endmodule (lua_State* L)
 {
@@ -561,12 +615,14 @@ TOLUA_API void tolua_endmodule (lua_State* L)
     * It creates a new module
 */
 /**
- * @param name  cpp中名字空间的概念
- *          若为空则直接将全局表(global)入栈
- *          PS : 不为空的前提是栈顶是全局表
  *
- * @param hasvar
- *          是否还有
+ *  在global中查询，或者新建模块表
+ *
+ *  @param name 名字空间，模块表
+ *  @param name 若为空则直接将全局表(global)入栈
+ *  @param name PS : 不为空的前提是栈顶是全局表
+ *
+ *  @param hasvar   是否还有
  */
 #if 1
 TOLUA_API void tolua_module (lua_State* L, const char* name, int hasvar)
@@ -734,15 +790,15 @@ TOLUA_API void tolua_addbase(lua_State* L, char* name, char* base) {
     * It assigns a function into the current module (or class)
 */
 /**
- * 前提：栈顶有当前模块表
+ *  前提：栈顶有当前模块表，本函数在tolua_modulebegin之后调用
  * 
- * 即 module.name = func
+ *  即 module.name = func
  *
- * @param name
- *          模块名字
+ *  @param L    状态机
  *
- * @param func
- *          注册C函数
+ *  @param name 模块名字
+ *
+ *  @param func 注册C函数
  */
 TOLUA_API void tolua_function (lua_State* L, const char* name, lua_CFunction func)
 {
@@ -767,6 +823,17 @@ TOLUA_API void tolua_set_call_event(lua_State* L, lua_CFunction func, char* type
 /* Map constant number
     * It assigns a constant number into the current module (or class)
 */
+/**
+ *  期望：栈顶是模块表
+ *
+ *  模块中的全局常量
+ *
+ *  module.const = value
+ *
+ *  @param L     状态机
+ *  @param name  常量名
+ *  @param value 常量值
+ */
 TOLUA_API void tolua_constant (lua_State* L, const char* name, lua_Number value)
 {
     lua_pushstring(L,name);
@@ -778,26 +845,54 @@ TOLUA_API void tolua_constant (lua_State* L, const char* name, lua_Number value)
 /* Map variable
     * It assigns a variable into the current module (or class)
 */
+/**
+ *  期望：栈顶有模块表
+ *
+ *  设置变量的get函数和set函数
+ *
+ *  @param L    状态机
+ *  @param name 变量名
+ *  @param get  get方法
+ *  @param set  set方法
+ */
 TOLUA_API void tolua_variable (lua_State* L, const char* name, lua_CFunction get, lua_CFunction set)
 {
     /* get func */
+    
+    /************/
+    /* get 函数  */
+    /************/
+    
+    /* 获得模块表 module_t[".get"] */
     lua_pushstring(L,".get");
-    lua_rawget(L,-2);
+    lua_rawget(L,-2); /* stack : module_t module_t[".get"] */
+    
+    /* 若没有新建一个表 get_t 入栈 */
     if (!lua_istable(L,-1))
     {
         /* create .get table, leaving it at the top */
         lua_pop(L,1);
-        lua_newtable(L);
+        lua_newtable(L); /* stack : module_t get_t */
         lua_pushstring(L,".get");
         lua_pushvalue(L,-2);
+        /* module_t[".get"] = get_t */
         lua_rawset(L,-4);
     }
+    
+    /* 存入变量 */
     lua_pushstring(L,name);
     lua_pushcfunction(L,get);
     lua_rawset(L,-3);                  /* store variable */
+    
     lua_pop(L,1);                      /* pop .get table */
-
+    
     /* set func */
+    
+    /************/
+    /* set 函数  */
+    /************/
+    
+    /* 和get相似 */
     if (set)
     {
         lua_pushstring(L,".set");
@@ -821,6 +916,13 @@ TOLUA_API void tolua_variable (lua_State* L, const char* name, lua_CFunction get
 /* Access const array
     * It reports an error when trying to write into a const array
 */
+/**
+ *  当试图改变一个数组中的常量的时候，引发一个错误
+ *
+ *  @param L 状态机
+ *
+ *  @return 返回0
+ */
 static int const_array (lua_State* L)
 {
     luaL_error(L,"value of const array cannot be changed");
@@ -830,8 +932,21 @@ static int const_array (lua_State* L)
 /* Map an array
     * It assigns an array into the current module (or class)
 */
+/**
+ *  期望：栈顶是一个模块表
+ *
+ *  设置数组的set和get
+ *
+ *  数组实际上是用到了table的数组部分
+ *
+ *  @param L    状态机
+ *  @param name 变量名
+ *  @param get  get方法
+ *  @param set  set方法
+ */
 TOLUA_API void tolua_array (lua_State* L, const char* name, lua_CFunction get, lua_CFunction set)
 {
+    /* 获得 get_t */
     lua_pushstring(L,".get");
     lua_rawget(L,-2);
     if (!lua_istable(L,-1))
@@ -845,16 +960,23 @@ TOLUA_API void tolua_array (lua_State* L, const char* name, lua_CFunction get, l
     }
     lua_pushstring(L,name);
 
+    /* 新建一个表 table */
     lua_newtable(L);           /* create array metatable */
-    lua_pushvalue(L,-1);
-    lua_setmetatable(L,-2);    /* set the own table as metatable (for modules) */
+        /* 将自己设置为自己的元表 */
+        lua_pushvalue(L,-1);
+        lua_setmetatable(L,-2);    /* set the own table as metatable (for modules) */
+    /* 设置表的__index属性为get */
     lua_pushstring(L,"__index");
     lua_pushcfunction(L,get);
     lua_rawset(L,-3);
+    
+    /* 设置表的__newindex属性为set */
     lua_pushstring(L,"__newindex");
+    /* 若set为空，表示这个数组是一个常量数组 */
     lua_pushcfunction(L,set?set:const_array);
     lua_rawset(L,-3);
 
+    /* 即 get_t[name] = table */
     lua_rawset(L,-3);                  /* store variable */
     lua_pop(L,1);                      /* pop .get table */
 }

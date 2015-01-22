@@ -138,8 +138,8 @@ static  int lua_isusertable (lua_State* L, int lo, const char* type)
     return r;
 }
 
-int push_table_instance(lua_State* L, int lo) {
-
+int push_table_instance(lua_State* L, int lo)
+{
     if (lua_istable(L, lo)) {
 
         lua_pushstring(L, ".c_instance");
