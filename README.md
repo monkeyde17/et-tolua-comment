@@ -3,9 +3,11 @@ tolua++源码注释
 
 > 虽然加上中文注释显得有点低端，但是做下这个事情吧。。
 
-注释内容包括
+源码都是从cocos2dx 3.0版本中拷贝而来
 
 ## tolua++
+
+从`PROJECTDIR/external/tolua`拷贝
 
 - tolua++.h
 - tolua\_event.c & h
@@ -16,5 +18,10 @@ tolua++源码注释
 
 ## lua -- c api
 
+其中.h文件是从`PROJECTDIR/external/luajit/include`
+lauxlib.c则是从`PROJECTDIR/external/lua`
+
 - lua.h
+- luaconf.h
+- lualib.h
 - lauxlib.c & h
