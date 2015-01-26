@@ -64,10 +64,13 @@ static int tolua_newmetatable (lua_State* L, const char* name)
 }
 
 /**
- * Map super classes
+ *  Map super classes
  *
- * It sets 'name' as being also a 'base', mapping all super classes of 'base' in 'name'
- *
+ *  It sets 'name' as being also a 'base', mapping all super classes of 'base' in 'name'
+ * 
+ *  将所有基类和基类元表加入reg.tolua_super表中
+ * 
+ *  即 reg.tolua_super[base] = {}
  *
  *  @param L    状态机
  *  @param name 子类
@@ -76,30 +79,32 @@ static int tolua_newmetatable (lua_State* L, const char* name)
 static void mapsuper (lua_State* L, const char* name, const char* base)
 {
     /* push registry.super */
-    /* 获得全局注册表中的tolua_super，并入栈 */
+    /* 获得registry.tolua_super并入栈 */
     lua_pushstring(L,"tolua_super");
     lua_rawget(L,LUA_REGISTRYINDEX);    /* stack: super */
     
-    /* 将registry[name]表入栈 */
+    /* 将registry.name表入栈 */
     luaL_getmetatable(L,name);          /* stack: super mt */
-    /* 查询registry[name]表在tolua_super中的值 */
+    
+    /* 查询registry.name表在tolua_super中的值 */
+    /* 即 tolua_super[registry.name] */
     lua_rawget(L,-2);                   /* stack: super table */
     
-    /* 若为空的话，则新建一个表，并加入tolua_super表中 */
-    if (lua_isnil(L,-1))
+    if (lua_isnil(L,-1)) /* 若为空的话，则新建一个表，并加入tolua_super表中 */
     {
         /* create table */
+        
         /* 先将栈顶的nil出栈 */
         lua_pop(L,1);
         
         /* 新建一个表并入栈 */
         lua_newtable(L);                    /* stack: super table */
-        /* 获得栈顶表的元表并入栈 */
+        /* 获得registry.name 并入栈 */
         luaL_getmetatable(L,name);          /* stack: super table mt */
-        /* 复制表到栈顶 */
+        /* 复制新建表到栈顶 */
         lua_pushvalue(L,-2);                /* stack: super table mt table */
         /* 加入tolua_super表中 */
-        /* tolua_super[元表mt] = 表t */
+        /* tolua_super[registry.name] = 新建表 */
         lua_rawset(L,-4);                   /* stack: super table */
     }
 
@@ -107,7 +112,7 @@ static void mapsuper (lua_State* L, const char* name, const char* base)
     /* 将 基类base 加入tolua_super中 */
     lua_pushstring(L,base);
     lua_pushboolean(L,1);
-    /* tolua_super[基类base] = true */
+    /* tolua_super[registry.name][base] = true */
     lua_rawset(L,-3);                    /* stack: super table */
 
     /* set all super class of base as super class of name */
@@ -143,73 +148,113 @@ static void mapsuper (lua_State* L, const char* name, const char* base)
     lua_pop(L,3);                       /* stack: <empty> */
 }
 
-/* creates a 'tolua_ubox' table for base clases, and
-// expects the metatable and base metatable on the stack */
 /**
- *  期望：
+ *  creates a 'tolua_ubox' table for base clases, and
+ *  expects the metatable and base metatable on the stack
+ *
+ *  期望：栈顶子类元表和基类元表
+ *
+ *  若基类元表含有tolua_ubox表，则将基类元表的tolua_ubox表加入到子类元表中
+ *
+ *  若基类元表不含有tolua_ubox表，则创建一个tolua_ubox表再加入子类元表中
  *
  *  @param L 状态机
  */
 static void set_ubox(lua_State* L) {
 
     /* mt basemt */
-    if (!lua_isnil(L, -1)) {
+    if (!lua_isnil(L, -1)) { /* 若栈顶不为nil */
         lua_pushstring(L, "tolua_ubox");
+        /* 入栈basemt.tolua_ubox */
+        /* 入栈基类元表中的tolua_ubox */
         lua_rawget(L,-2);
     } else {
         lua_pushnil(L);
     };
     /* mt basemt base_ubox */
-    if (!lua_isnil(L,-1)) {
+    if (!lua_isnil(L,-1)) { /* 若栈顶不为 nil, 表明基类元表有tolua_ubox */
+        /* 则把子类元表中加入 tolua_ubox 字段，值为基类元表的tolua_ubox */
         lua_pushstring(L, "tolua_ubox");
         lua_insert(L, -2);
         /* mt basemt key ubox */
         lua_rawset(L,-4);
         /* (mt with ubox) basemt */
-    } else {
+    } else { /* 栈顶为nil，表明基类元表没有tolua_ubox，则需要给子类元表创建一个tolua_ubox表 */
         /* mt basemt nil */
+        /* 先将栈顶nil出栈 */
         lua_pop(L, 1);
+        
         lua_pushstring(L,"tolua_ubox");
         lua_newtable(L);
-        /* make weak value metatable for ubox table to allow userdata to be
-        garbage-collected */
-        lua_newtable(L);
-        lua_pushliteral(L, "__mode");
-        lua_pushliteral(L, "v");
-        lua_rawset(L, -3);               /* stack: string ubox mt */
+            /* make weak value metatable for ubox table to allow userdata to be */
+            /* garbage-collected */
+            /* 创建一个弱引用表 {__mode = "v"} */
+            lua_newtable(L);
+            lua_pushliteral(L, "__mode");
+            lua_pushliteral(L, "v");
+            lua_rawset(L, -3);    /* stack: string ubox mt */
+        /* 将这个值弱引用表设置成tolua_ubox的元表 */
         lua_setmetatable(L, -2);  /* stack:mt basemt string ubox */
+        
+        /* 将新建的tolua_ubox加入到基类元表之中 */
         lua_rawset(L,-4);
     };
 
 };
 
-/* Map inheritance
-    * It sets 'name' as derived from 'base' by setting 'base' as metatable of 'name'
-*/
+/**
+ *  Map inheritance
+ *
+ *  It sets 'name' as derived from 'base' by setting 'base' as metatable of 'name'
+ *
+ *  从基类继承，即设置tolua_ubox表，并设置基类元表为子类的元表
+ *
+ *  @param L    状态机
+ *  @param name 子类名字
+ *  @param base 基类名字
+ */
 static void mapinheritance (lua_State* L, const char* name, const char* base)
 {
     /* set metatable inheritance */
+    
+    /* 获得 registry.name */
     luaL_getmetatable(L,name);
-
-    if (base && *base)
+    
+    if (base && *base)  /* 当需要从 base 继承 */
+        /* 获得 registry.base */
         luaL_getmetatable(L,base);
-    else {
-
+    else                /* 不需要继承，name就是父类 */
+    {
+        /* 已经有元表 */
         if (lua_getmetatable(L, -1)) { /* already has a mt, we don't overwrite it */
             lua_pop(L, 2);
             return;
         };
-        luaL_getmetatable(L,"tolua_commonclass");
+        /* 获得 registry.tolua_commonclass */
+        luaL_getmetatable(L,"tolua_commonclass"); /* stack : reg.name reg.tolua_commonclass */
     };
-
+    
+    /* 在元表中加入tolua_ubox表 */
     set_ubox(L);
 
+    /* 将reg.tolua_commonclass设置成reg.name的元表 */
     lua_setmetatable(L,-2);
+    
+    /* 清空栈 */
     lua_pop(L,1);
 }
 
-/* Object type
-*/
+/**
+ *  Object type
+ *
+ *  获得栈顶数据类型
+ *
+ *  tolua.type(type)
+ *
+ *  @param L 状态机
+ *
+ *  @return 1
+ */
 static int tolua_bnd_type (lua_State* L)
 {
     tolua_typename(L,lua_gettop(L));
@@ -375,16 +420,27 @@ static int tolua_bnd_getpeer(lua_State* L) {
  *      7. register.tolua_gc_event = cfunc_calss_gc_event(tolua_gc, tolua_super) ... end
  *
  *      8. register.tolua_commonclass = {
+ *
  *              __index     = class_index_event,
+ *
  *              __newindex  = class_newindex_event,
+ *
  *              __add       = class_add_event,
+ *
  *              __sub       = class_sub_event,
+ *
  *              __mul       = class_mul_event,
+ *
  *              __div       = class_div_event,
+ *
  *              __lt        = class_lt_event,
+ *
  *              __le        = class_le_event,
+ *
  *              __eq        = class_eq_event,
+ *
  *              __call      = class_call_event,
+ *
  *              __gc        = register.tolua_gc_event,
  *      }
  *
@@ -583,10 +639,11 @@ TOLUA_API void tolua_usertype (lua_State* L, const char* type)
 }
 
 
-/* Begin module
-    * It pushes the module (or class) table on the stack
-*/
 /**
+ *  Begin module
+ *
+ *  It pushes the module (or class) table on the stack
+ *
  *  将模块表入栈，或者查询模块表中的内容
  *
  *  @param L    状态机
@@ -608,10 +665,11 @@ TOLUA_API void tolua_beginmodule (lua_State* L, const char* name)
         lua_pushvalue(L,LUA_GLOBALSINDEX);
 }
 
-/* End module
-    * It pops the module (or class) from the stack
-*/
 /**
+ *  End module
+ *
+ *  It pops the module (or class) from the stack
+ *
  *  就是将模块表出栈
  *
  *  即lua_pop(L, 1)
@@ -623,10 +681,10 @@ TOLUA_API void tolua_endmodule (lua_State* L)
     lua_pop(L,1);
 }
 
-/* Map module
-    * It creates a new module
-*/
 /**
+ *  Map module
+ *
+ *  It creates a new module
  *
  *  在global中查询，或者新建模块表
  *
@@ -798,10 +856,11 @@ TOLUA_API void tolua_addbase(lua_State* L, char* name, char* base) {
 };
 
 
-/* Map function
-    * It assigns a function into the current module (or class)
-*/
 /**
+ *  Map function
+ *
+ *  It assigns a function into the current module (or class)
+ *
  *  前提：栈顶有当前模块表，本函数在tolua_modulebegin之后调用
  * 
  *  即 module.name = func
@@ -832,10 +891,11 @@ TOLUA_API void tolua_set_call_event(lua_State* L, lua_CFunction func, char* type
 };
 */
 
-/* Map constant number
-    * It assigns a constant number into the current module (or class)
-*/
 /**
+ *  Map constant number
+ *
+ *  It assigns a constant number into the current module (or class)
+ *
  *  期望：栈顶是模块表
  *
  *  模块中的全局常量
@@ -854,10 +914,11 @@ TOLUA_API void tolua_constant (lua_State* L, const char* name, lua_Number value)
 }
 
 
-/* Map variable
-    * It assigns a variable into the current module (or class)
-*/
 /**
+ *  Map variable
+ *
+ *  It assigns a variable into the current module (or class)
+ *
  *  期望：栈顶有模块表
  *
  *  设置变量的get函数和set函数
@@ -925,10 +986,11 @@ TOLUA_API void tolua_variable (lua_State* L, const char* name, lua_CFunction get
     }
 }
 
-/* Access const array
-    * It reports an error when trying to write into a const array
-*/
 /**
+ *  Access const array
+ *
+ *  It reports an error when trying to write into a const array
+ *
  *  当试图改变一个数组中的常量的时候，引发一个错误
  *
  *  @param L 状态机
@@ -941,10 +1003,11 @@ static int const_array (lua_State* L)
     return 0;
 }
 
-/* Map an array
-    * It assigns an array into the current module (or class)
-*/
 /**
+ *  Map an array
+ *
+ *  It assigns an array into the current module (or class)
+ *
  *  期望：栈顶是一个模块表
  *
  *  设置数组的set和get

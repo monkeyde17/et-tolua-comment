@@ -18,12 +18,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-/*  */
 /**
  *  a fast check if a is b, without parameter validation
  *  i.e. if b is equal to a or a superclass of a.
  *
- *
+ *  比较两个类是否是同个类
  *
  *  @param L           状态机
  *  @param mt_indexa   表a位置
@@ -31,6 +30,8 @@
  *  @param super_index 父类表位置
  *
  *  @return 是否表a和表相等
+ *  @return 1 : 相等
+ *  @return 0 : 不相等
  */
 TOLUA_API int tolua_fast_isa(lua_State *L, int mt_indexa, int mt_indexb, int super_index)
 {
@@ -45,11 +46,18 @@ TOLUA_API int tolua_fast_isa(lua_State *L, int mt_indexa, int mt_indexb, int sup
             lua_pushliteral(L,"tolua_super");
             lua_rawget(L,LUA_REGISTRYINDEX);  /* stack: super */
         };
+        /* 在父类中查找类a对应的表 */
         lua_pushvalue(L,mt_indexa);       /* stack: super mta */
         lua_rawget(L,-2);                 /* stack: super super[mta] */
+        
+        /* 在reg中查找类b对应的名字 */
         lua_pushvalue(L,mt_indexb);       /* stack: super super[mta] mtb */
         lua_rawget(L,LUA_REGISTRYINDEX);  /* stack: super super[mta] typenameB */
+        
+        /* 在类a的元表中查找类b的名字 */
         lua_rawget(L,-2);                 /* stack: super super[mta] bool */
+        
+        /* 检查返回值 */
         result = lua_toboolean(L,-1);
         lua_pop(L,3);
     }
@@ -110,6 +118,13 @@ TOLUA_API const char* tolua_typename (lua_State* L, int lo)
     return lua_tostring(L,-1);
 }
 
+/**
+ *  tolua错误处理函数
+ *
+ *  @param L   状态机
+ *  @param msg 错误消息
+ *  @param err 错误描述
+ */
 TOLUA_API void tolua_error (lua_State* L, const char* msg, tolua_Error* err)
 {
     if (msg[0] == '#')
@@ -140,7 +155,17 @@ TOLUA_API void tolua_error (lua_State* L, const char* msg, tolua_Error* err)
         luaL_error(L,msg);
 }
 
-/* the equivalent of lua_is* for usertable */
+/**
+ *  the equivalent of lua_is* for usertable
+ *
+ *  成功返回，type中含有对应字符串
+ *
+ *  @param L    状态机
+ *  @param lo   栈中位置
+ *  @param type 类型描述
+ *
+ *  @return 是否成功获得类型
+ */
 static  int lua_isusertable (lua_State* L, int lo, const char* type)
 {
     int r = 0;
@@ -163,15 +188,26 @@ static  int lua_isusertable (lua_State* L, int lo, const char* type)
     return r;
 }
 
+/**
+ *  检查相应位置是否为table实例
+ *
+ *  @param L  状态机
+ *  @param lo 栈中位置
+ *
+ *  @return 1 : 是
+ *  @return 0 : 否
+ */
 int push_table_instance(lua_State* L, int lo)
 {
     if (lua_istable(L, lo)) {
 
+        /* 检查 ".c_instance" */
         lua_pushstring(L, ".c_instance");
         lua_gettable(L, lo);
-        if (lua_isuserdata(L, -1)) {
+        
+        if (lua_isuserdata(L, -1)) { /* 若是用户数据 */
 
-            lua_replace(L, lo);
+            lua_replace(L, lo); /* 将用户数据替换成lo位置的表 */
             return 1;
         } else {
 
@@ -185,7 +221,17 @@ int push_table_instance(lua_State* L, int lo)
     return 0;
 };
 
-/* the equivalent of lua_is* for usertype */
+/**
+ *  the equivalent of lua_is* for usertype
+ *
+ *
+ *  @param L    状态机
+ *  @param lo   栈中位置
+ *  @param type 类型名称
+ *
+ *  @return 1 :
+ *  @return 0 :
+ */
 int lua_isusertype (lua_State* L, int lo, const char* type)
 {
     if (!lua_isuserdata(L,lo)) {
@@ -228,6 +274,16 @@ int lua_isusertype (lua_State* L, int lo, const char* type)
     return 0;
 }
 
+/**
+ *  栈顶元素是否不是对象
+ *
+ *  @param L   状态机
+ *  @param lo  栈中位置
+ *  @param err 错误描述
+ *
+ *  @return 1 :
+ *  @return 0 :
+ */
 TOLUA_API int tolua_isnoobj (lua_State* L, int lo, tolua_Error* err)
 {
     if (lua_gettop(L)<abs(lo))
