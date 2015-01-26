@@ -18,8 +18,20 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* a fast check if a is b, without parameter validation
- i.e. if b is equal to a or a superclass of a. */
+/*  */
+/**
+ *  a fast check if a is b, without parameter validation
+ *  i.e. if b is equal to a or a superclass of a.
+ *
+ *
+ *
+ *  @param L           状态机
+ *  @param mt_indexa   表a位置
+ *  @param mt_indexb   表b位置
+ *  @param super_index 父类表位置
+ *
+ *  @return 是否表a和表相等
+ */
 TOLUA_API int tolua_fast_isa(lua_State *L, int mt_indexa, int mt_indexb, int super_index)
 {
     int result;
@@ -44,7 +56,16 @@ TOLUA_API int tolua_fast_isa(lua_State *L, int mt_indexa, int mt_indexb, int sup
     return result;
 }
 
-/* Push and returns the corresponding object typename */
+/**
+ *  Push and returns the corresponding object typename
+ *
+ *  获取指定位置类型
+ *
+ *  @param L  状态机
+ *  @param lo 栈中位置
+ *
+ *  @return 类型
+ */
 TOLUA_API const char* tolua_typename (lua_State* L, int lo)
 {
     int tag = lua_type(L,lo);
@@ -54,20 +75,24 @@ TOLUA_API const char* tolua_typename (lua_State* L, int lo)
         lua_pushstring(L,lua_typename(L,tag));
     else if (tag == LUA_TUSERDATA)
     {
-        if (!lua_getmetatable(L,lo))
+        /* 对于用户数据 */
+        if (!lua_getmetatable(L,lo))    /* 若没有元表 */
             lua_pushstring(L,lua_typename(L,tag));
-        else
+        else                            /* 若有元表 */
         {
+            /* 查询在register中对应的值 */
             lua_rawget(L,LUA_REGISTRYINDEX);
             if (!lua_isstring(L,-1))
             {
+
                 lua_pop(L,1);
                 lua_pushstring(L,"[undefined]");
             }
         }
     }
-    else  /* is table */
+    else  /* is table */            /* 若是表 */
     {
+        /* 在register中查找 */
         lua_pushvalue(L,lo);
         lua_rawget(L,LUA_REGISTRYINDEX);
         if (!lua_isstring(L,-1))

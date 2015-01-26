@@ -22,11 +22,11 @@
 #include <math.h>
 
 
-/* Create metatable
-    * Create and register new metatable
-*/
-
 /**
+ *  Create metatable
+ *
+ *  Create and register new metatable
+ *
  *  在全局注册表(register)中创建一个新的表，并把各个元方法注册到register中
  *
  *  @param L    状态机
@@ -63,10 +63,10 @@ static int tolua_newmetatable (lua_State* L, const char* name)
     return r;
 }
 
-/* Map super classes
-    * It sets 'name' as being also a 'base', mapping all super classes of 'base' in 'name'
-*/
 /**
+ * Map super classes
+ *
+ * It sets 'name' as being also a 'base', mapping all super classes of 'base' in 'name'
  *
  *
  *  @param L    状态机
@@ -372,9 +372,21 @@ static int tolua_bnd_getpeer(lua_State* L) {
  *
  *      6. register.tolua_gc = {}
  *
- *      7. register.tolua_gc_event = cfunc_calss_gc_event(tolua_gc, tolua_super) do ... end
+ *      7. register.tolua_gc_event = cfunc_calss_gc_event(tolua_gc, tolua_super) ... end
  *
- *      8. register.tolua_commonclass = {__index = .. , ... , __call = ..}
+ *      8. register.tolua_commonclass = {
+ *              __index     = class_index_event,
+ *              __newindex  = class_newindex_event,
+ *              __add       = class_add_event,
+ *              __sub       = class_sub_event,
+ *              __mul       = class_mul_event,
+ *              __div       = class_div_event,
+ *              __lt        = class_lt_event,
+ *              __le        = class_le_event,
+ *              __eq        = class_eq_event,
+ *              __call      = class_call_event,
+ *              __gc        = register.tolua_gc_event,
+ *      }
  *
  *  还有在 global 中做了以下事情：这些在lua中可以访问
  *
