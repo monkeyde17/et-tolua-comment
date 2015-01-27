@@ -27,7 +27,7 @@
  *
  *  Create and register new metatable
  *
- *  在全局注册表(register)中创建一个新的表，并把各个元方法注册到register中
+ *  在全局注册表(register)中创建一个新的表，并把各个元方法注册到registry中
  *
  *  @param L    状态机
  *  @param name 注册名称
@@ -39,7 +39,7 @@ static int tolua_newmetatable (lua_State* L, const char* name)
 {
     /* 创建一个新的元表 */
     /* 将元表添加到全局注册表中 */
-    /* register.name = {} */
+    /* registry.name = {} */
     int r = luaL_newmetatable(L,name);
 
 #ifdef LUA_VERSION_NUM /* only lua 5.1 */
@@ -49,7 +49,7 @@ static int tolua_newmetatable (lua_State* L, const char* name)
         
         /* lua5.1需要重新查询一次，将元表放到栈顶 */
         /* 是将返回的 表r 作为键 name 作为值 */
-        /* register.r = name */
+        /* registry.r = name */
         lua_settable(L, LUA_REGISTRYINDEX); /* reg[mt] = type_name */
     };
 #endif
@@ -261,8 +261,15 @@ static int tolua_bnd_type (lua_State* L)
     return 1;
 }
 
-/* Take ownership
-*/
+/**
+ * Take ownership
+ *
+ *
+ *  @param L 状态机
+ *
+ *  @return 1 : 成功
+ *  @return 0 : 失败
+ */
 static int tolua_bnd_takeownership (lua_State* L)
 {
     int success = 0;
@@ -554,7 +561,6 @@ TOLUA_API void tolua_open (lua_State* L)
         
         /* 其实就是将全局表(global)入栈 */
         tolua_beginmodule(L,NULL); /* stack : global */
-        
             /* global.tolua = {} */
             /* 查询名字空间，查到就返回对应表 */
             /* 否则就新建一个表 */
@@ -573,7 +579,6 @@ TOLUA_API void tolua_open (lua_State* L)
                 tolua_function(L, "setpeer", tolua_bnd_setpeer);
                 tolua_function(L, "getpeer", tolua_bnd_getpeer);
 #endif
-        
             tolua_endmodule(L); /* stack : global */
         tolua_endmodule(L); /* stack : <empty> */
     }

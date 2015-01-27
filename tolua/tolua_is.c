@@ -79,20 +79,18 @@ TOLUA_API const char* tolua_typename (lua_State* L, int lo)
     int tag = lua_type(L,lo);
     if (tag == LUA_TNONE)
         lua_pushstring(L,"[no object]");
-    else if (tag != LUA_TUSERDATA && tag != LUA_TTABLE)
+    else if (tag != LUA_TUSERDATA && tag != LUA_TTABLE) /* 除了用户数据和表之外 */
         lua_pushstring(L,lua_typename(L,tag));
-    else if (tag == LUA_TUSERDATA)
+    else if (tag == LUA_TUSERDATA)      /* 对于用户数据 */
     {
-        /* 对于用户数据 */
         if (!lua_getmetatable(L,lo))    /* 若没有元表 */
             lua_pushstring(L,lua_typename(L,tag));
         else                            /* 若有元表 */
         {
-            /* 查询在register中对应的值 */
+            /* 查询在registry中对应的值 -- 类名 */
             lua_rawget(L,LUA_REGISTRYINDEX);
             if (!lua_isstring(L,-1))
             {
-
                 lua_pop(L,1);
                 lua_pushstring(L,"[undefined]");
             }
@@ -100,7 +98,7 @@ TOLUA_API const char* tolua_typename (lua_State* L, int lo)
     }
     else  /* is table */            /* 若是表 */
     {
-        /* 在register中查找 */
+        /* 在registry中查找 */
         lua_pushvalue(L,lo);
         lua_rawget(L,LUA_REGISTRYINDEX);
         if (!lua_isstring(L,-1))
@@ -112,7 +110,7 @@ TOLUA_API const char* tolua_typename (lua_State* L, int lo)
         {
             lua_pushstring(L,"class ");
             lua_insert(L,-2);
-            lua_concat(L,2);
+            lua_concat(L,2); /* 即 "class xxxx" */
         }
     }
     return lua_tostring(L,-1);
@@ -191,6 +189,10 @@ static  int lua_isusertable (lua_State* L, int lo, const char* type)
 /**
  *  检查相应位置是否为table实例
  *
+ *  即检查栈中lo处对象是否含有一个.c_instance字段的用户数据
+ *  
+ *  有则将其入栈，否则什么都不做。
+ *
  *  @param L  状态机
  *  @param lo 栈中位置
  *
@@ -223,19 +225,20 @@ int push_table_instance(lua_State* L, int lo)
 
 /**
  *  the equivalent of lua_is* for usertype
- *
+ *  
+ *  检查是否为type类型的用户数据
  *
  *  @param L    状态机
  *  @param lo   栈中位置
  *  @param type 类型名称
  *
- *  @return 1 :
- *  @return 0 :
+ *  @return 1 : 是
+ *  @return 0 : 否
  */
 int lua_isusertype (lua_State* L, int lo, const char* type)
 {
-    if (!lua_isuserdata(L,lo)) {
-        if (!push_table_instance(L, lo)) {
+    if (!lua_isuserdata(L,lo)) { /* 若不是用户数据 */
+        if (!push_table_instance(L, lo)) { /* 若是table查询是否有c_instance字段 */
             return 0;
         };
     };
@@ -243,24 +246,32 @@ int lua_isusertype (lua_State* L, int lo, const char* type)
         /* check if it is of the same type */
         int r;
         const char *tn;
+        /* 获得lo处的元表 */
         if (lua_getmetatable(L,lo))        /* if metatable? */
         {
+            /* 在registry中查询名字 */
             lua_rawget(L,LUA_REGISTRYINDEX);  /* get registry[mt] */
+            /* 转成c字符串 */
             tn = lua_tostring(L,-1);
+            /* 比较类型 */
             r = tn && (strcmp(tn,type) == 0);
             lua_pop(L, 1);
-            if (r)
+            
+            if (r) /* 相同 */
                 return 1;
-            else
+            else   /* 不同 */
             {
                 /* check if it is a specialized class */
+                
+                /* 检查元表在全局tolua_super中的值 */
                 lua_pushstring(L,"tolua_super");
                 lua_rawget(L,LUA_REGISTRYINDEX); /* get super */
                 lua_getmetatable(L,lo);
                 lua_rawget(L,-2);                /* get super[mt] */
-                if (lua_istable(L,-1))
+                if (lua_istable(L,-1)) /* 若是表 */
                 {
                     int b;
+                    /* 检查是否有如此类型 */
                     lua_pushstring(L,type);
                     lua_rawget(L,-2);                /* get super[mt][type] */
                     b = lua_toboolean(L,-1);
@@ -275,7 +286,7 @@ int lua_isusertype (lua_State* L, int lo, const char* type)
 }
 
 /**
- *  栈顶元素是否不是对象
+ *  栈中位置是否不是对象
  *
  *  @param L   状态机
  *  @param lo  栈中位置
@@ -294,6 +305,17 @@ TOLUA_API int tolua_isnoobj (lua_State* L, int lo, tolua_Error* err)
     return 0;
 }
 
+/**
+ *  栈中位置是否为布尔
+ *
+ *  @param L   状态机
+ *  @param lo  栈中位置
+ *  @param def 预设值
+ *  @param err 错误描述
+ *
+ *  @return 1 : 是
+ *  @return 0 : 否
+ */
 TOLUA_API int tolua_isboolean (lua_State* L, int lo, int def, tolua_Error* err)
 {
     if (def && lua_gettop(L)<abs(lo))
@@ -306,6 +328,17 @@ TOLUA_API int tolua_isboolean (lua_State* L, int lo, int def, tolua_Error* err)
     return 0;
 }
 
+/**
+ *  栈中位置是否是数字
+ *
+ *  @param L   状态机
+ *  @param lo  栈中位置
+ *  @param def 预设值
+ *  @param err 错误描述
+ *
+ *  @return 1 : 是
+ *  @return 0 : 否
+ */
 TOLUA_API int tolua_isnumber (lua_State* L, int lo, int def, tolua_Error* err)
 {
     if (def && lua_gettop(L)<abs(lo))
@@ -318,6 +351,17 @@ TOLUA_API int tolua_isnumber (lua_State* L, int lo, int def, tolua_Error* err)
     return 0;
 }
 
+/**
+ *  栈中位置是否是字符串
+ *
+ *  @param L   状态机
+ *  @param lo  栈中位置
+ *  @param def 预设值
+ *  @param err 错误描述
+ *
+ *  @return 1 : 是
+ *  @return 0 : 否
+ */
 TOLUA_API int tolua_isstring (lua_State* L, int lo, int def, tolua_Error* err)
 {
     if (def && lua_gettop(L)<abs(lo))
@@ -330,6 +374,17 @@ TOLUA_API int tolua_isstring (lua_State* L, int lo, int def, tolua_Error* err)
     return 0;
 }
 
+/**
+ *  栈中位置是否为表
+ *
+ *  @param L   状态机
+ *  @param lo  栈中位置
+ *  @param def 预设值
+ *  @param err 错误描述
+ *
+ *  @return 1 : 是
+ *  @return 0 : 否
+ */
 TOLUA_API int tolua_istable (lua_State* L, int lo, int def, tolua_Error* err)
 {
     if (def && lua_gettop(L)<abs(lo))
@@ -342,6 +397,18 @@ TOLUA_API int tolua_istable (lua_State* L, int lo, int def, tolua_Error* err)
     return 0;
 }
 
+/**
+ *  战中位置是否是用户数据
+ *
+ *  @param L    状态机
+ *  @param lo   栈中位置
+ *  @param type 类型
+ *  @param def  预设值
+ *  @param err  错误描述
+ *
+ *  @return 1 : 是
+ *  @return 0 : 否
+ */
 TOLUA_API int tolua_isusertable (lua_State* L, int lo, const char* type, int def, tolua_Error* err)
 {
     if (def && lua_gettop(L)<abs(lo))
@@ -354,7 +421,17 @@ TOLUA_API int tolua_isusertable (lua_State* L, int lo, const char* type, int def
     return 0;
 }
 
-
+/**
+ *  栈中位置是否为用户数据
+ *
+ *  @param L   状态机
+ *  @param lo  栈中位置
+ *  @param def 预设值
+ *  @param err 错误描述
+ *
+ *  @return 1 : 是
+ *  @return 0 : 否
+ */
 TOLUA_API int tolua_isuserdata (lua_State* L, int lo, int def, tolua_Error* err)
 {
     if (def && lua_gettop(L)<abs(lo))
@@ -367,6 +444,16 @@ TOLUA_API int tolua_isuserdata (lua_State* L, int lo, int def, tolua_Error* err)
     return 0;
 }
 
+/**
+ *  栈中位置是否为nil
+ *
+ *  @param L   状态机
+ *  @param lo  栈中位置
+ *  @param err 错误描述
+ *
+ *  @return 1 : 是
+ *  @return 0 : 否
+ */
 TOLUA_API int tolua_isvaluenil (lua_State* L, int lo, tolua_Error* err) {
 
     if (lua_gettop(L)<abs(lo))
@@ -380,6 +467,19 @@ TOLUA_API int tolua_isvaluenil (lua_State* L, int lo, tolua_Error* err) {
     return 1;
 };
 
+/**
+ *  栈中位置是否为lua值
+ *  
+ *  只需满足lo在栈中即可
+ *
+ *  @param L   状态机
+ *  @param lo  栈中位置
+ *  @param def 预设值
+ *  @param err 错误描述
+ *
+ *  @return 1 : 是
+ *  @return 0 : 否
+ */
 TOLUA_API int tolua_isvalue (lua_State* L, int lo, int def, tolua_Error* err)
 {
     if (def || abs(lo)<=lua_gettop(L))  /* any valid index */
@@ -390,6 +490,18 @@ TOLUA_API int tolua_isvalue (lua_State* L, int lo, int def, tolua_Error* err)
     return 0;
 }
 
+/**
+ *  栈中位置是否为用户数据
+ *
+ *  @param L    状态机
+ *  @param lo   栈中位置
+ *  @param type 类型
+ *  @param def  预设值
+ *  @param err  错误描述
+ *
+ *  @return 1 : 是
+ *  @return 0 : 否
+ */
 TOLUA_API int tolua_isusertype (lua_State* L, int lo, const char* type, int def, tolua_Error* err)
 {
     if (def && lua_gettop(L)<abs(lo))
@@ -402,6 +514,20 @@ TOLUA_API int tolua_isusertype (lua_State* L, int lo, const char* type, int def,
     return 0;
 }
 
+/**
+ *  是否为数值数组
+ *
+ *  即检查是否为table
+ *
+ *  @param L   状态机
+ *  @param lo  栈中位置
+ *  @param dim 数组数量
+ *  @param def 预设值
+ *  @param err 错误描述
+ *
+ *  @return 1 : 是
+ *  @return 0 : 否
+ */
 TOLUA_API int tolua_isvaluearray
 (lua_State* L, int lo, int dim, int def, tolua_Error* err)
 {
@@ -411,6 +537,18 @@ TOLUA_API int tolua_isvaluearray
         return 1;
 }
 
+/**
+ *  是否为布尔数组
+ *
+ *  @param L   状态机
+ *  @param lo  栈中位置
+ *  @param dim 数组数量
+ *  @param def 预设值
+ *  @param err 错误描述
+ *
+ *  @return 1 : 是
+ *  @return 0 : 否
+ */
 TOLUA_API int tolua_isbooleanarray
 (lua_State* L, int lo, int dim, int def, tolua_Error* err)
 {
@@ -438,6 +576,18 @@ TOLUA_API int tolua_isbooleanarray
     return 1;
 }
 
+/**
+ *  是否为数字数组
+ *
+ *  @param L   状态机
+ *  @param lo  栈中位置
+ *  @param dim 数组数量
+ *  @param def 预设值
+ *  @param err 错误描述
+ *
+ *  @return 1 : 是
+ *  @return 0 : 否
+ */
 TOLUA_API int tolua_isnumberarray
 (lua_State* L, int lo, int dim, int def, tolua_Error* err)
 {
@@ -465,6 +615,18 @@ TOLUA_API int tolua_isnumberarray
     return 1;
 }
 
+/**
+ *  检查是否为字符串数组
+ *
+ *  @param L   状态机
+ *  @param lo  栈中位置
+ *  @param dim 数组数量
+ *  @param def 预设值
+ *  @param err 错误描述
+ *
+ *  @return 1 : 是
+ *  @return 0 : 否
+ */
 TOLUA_API int tolua_isstringarray
 (lua_State* L, int lo, int dim, int def, tolua_Error* err)
 {
@@ -492,6 +654,18 @@ TOLUA_API int tolua_isstringarray
     return 1;
 }
 
+/**
+ *  是否为表数组
+ *
+ *  @param L   状态机
+ *  @param lo  栈中位置
+ *  @param dim 数组数量
+ *  @param def 预设值
+ *  @param err 错误描述
+ *
+ *  @return 1 : 是
+ *  @return 0 : 否
+ */
 TOLUA_API int tolua_istablearray
 (lua_State* L, int lo, int dim, int def, tolua_Error* err)
 {
@@ -519,6 +693,18 @@ TOLUA_API int tolua_istablearray
     return 1;
 }
 
+/**
+ *  是否用户数据数组
+ *
+ *  @param L   状态机
+ *  @param lo  栈中位置
+ *  @param dim 数组数量
+ *  @param def 预设值
+ *  @param err 错误描述
+ *
+ *  @return 1 : 是
+ *  @return 0 : 否
+ */
 TOLUA_API int tolua_isuserdataarray
 (lua_State* L, int lo, int dim, int def, tolua_Error* err)
 {
@@ -546,6 +732,19 @@ TOLUA_API int tolua_isuserdataarray
     return 1;
 }
 
+/**
+ *  是否为用户类型数组
+ *
+ *  @param L    状态机
+ *  @param type 类型
+ *  @param lo   栈中位置
+ *  @param dim  数组数量
+ *  @param def  预设值
+ *  @param err  错误描述
+ *
+ *  @return 1 : 是
+ *  @return 0 : 否
+ */
 TOLUA_API int tolua_isusertypearray
 (lua_State* L, int lo, const char* type, int dim, int def, tolua_Error* err)
 {
@@ -574,6 +773,18 @@ TOLUA_API int tolua_isusertypearray
 }
 
 #if 0
+/**
+ *  检查表中位置是否为布尔类型
+ *
+ *  @param L   状态机
+ *  @param lo  栈中位置
+ *  @param i   表中位置
+ *  @param def 预设值
+ *  @param err 错误描述
+ *
+ *  @return 1 : 是
+ *  @return 0 : 否
+ */
 int tolua_isbooleanfield
 (lua_State* L, int lo, int i, int def, tolua_Error* err)
 {
@@ -592,6 +803,18 @@ int tolua_isbooleanfield
     return 1;
 }
 
+/**
+ *  检查表中位置是否为数字类型
+ *
+ *  @param L   状态机
+ *  @param lo  栈中位置
+ *  @param i   表中位置
+ *  @param def 预设值
+ *  @param err 错误描述
+ *
+ *  @return 1 : 是
+ *  @return 0 : 否
+ */
 int tolua_isnumberfield
 (lua_State* L, int lo, int i, int def, tolua_Error* err)
 {
@@ -609,7 +832,18 @@ int tolua_isnumberfield
     lua_pop(L,1);
     return 1;
 }
-
+/**
+ *  检查表中位置是否为布尔类型
+ *
+ *  @param L   状态机
+ *  @param lo  栈中位置
+ *  @param i   表中位置
+ *  @param def 预设值
+ *  @param err 错误描述
+ *
+ *  @return 1 : 是
+ *  @return 0 : 否
+ */
 int tolua_isstringfield
 (lua_State* L, int lo, int i, int def, tolua_Error* err)
 {
@@ -627,7 +861,18 @@ int tolua_isstringfield
     lua_pop(L,1);
     return 1;
 }
-
+/**
+ *  检查表中位置是否为布尔类型
+ *
+ *  @param L   状态机
+ *  @param lo  栈中位置
+ *  @param i   表中位置
+ *  @param def 预设值
+ *  @param err 错误描述
+ *
+ *  @return 1 : 是
+ *  @return 0 : 否
+ */
 int tolua_istablefield
 (lua_State* L, int lo, int i, int def, tolua_Error* err)
 {
@@ -644,7 +889,18 @@ int tolua_istablefield
     }
     lua_pop(L,1);
 }
-
+/**
+ *  检查表中位置是否为布尔类型
+ *
+ *  @param L   状态机
+ *  @param lo  栈中位置
+ *  @param i   表中位置
+ *  @param def 预设值
+ *  @param err 错误描述
+ *
+ *  @return 1 : 是
+ *  @return 0 : 否
+ */
 int tolua_isusertablefield
 (lua_State* L, int lo, const char* type, int i, int def, tolua_Error* err)
 {
@@ -663,6 +919,18 @@ int tolua_isusertablefield
     return 1;
 }
 
+/**
+ *  检查表中位置是否为用户数据类型
+ *
+ *  @param L   状态机
+ *  @param lo  栈中位置
+ *  @param i   表中位置
+ *  @param def 预设值
+ *  @param err 错误描述
+ *
+ *  @return 1 : 是
+ *  @return 0 : 否
+ */
 int tolua_isuserdatafield
 (lua_State* L, int lo, int i, int def, tolua_Error* err)
 {
@@ -681,6 +949,19 @@ int tolua_isuserdatafield
     return 1;
 }
 
+/**
+ *  检查表中位置是否为用户类型
+ *
+ *  @param L    状态机
+ *  @param lo   栈中位置
+ *  @param type 类型
+ *  @param i    表中位置
+ *  @param def  预设值
+ *  @param err  错误描述
+ *
+ *  @return 1 : 是
+ *  @return 0 : 否
+ */
 int tolua_isusertypefield
 (lua_State* L, int lo, const char* type, int i, int def, tolua_Error* err)
 {

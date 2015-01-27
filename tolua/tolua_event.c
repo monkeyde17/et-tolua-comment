@@ -211,7 +211,7 @@ static int class_index_event (lua_State* L)
         /* 对于lua5.1 */
         /* 获得用户数据的环境表usr_env，并压入栈中 */
         lua_getfenv(L,1);
-        /* usr_evn表是否是 TOLUA_NOPEER(就是register) */
+        /* usr_evn表是否是 TOLUA_NOPEER(就是registry) */
         if (!lua_rawequal(L, -1, TOLUA_NOPEER)) { /* 若不是，则为tolua_peers表 */
             /* 将栈中的键入栈 */
             lua_pushvalue(L, 2); /* key */
@@ -222,7 +222,7 @@ static int class_index_event (lua_State* L)
                 return 1; /* 若不为空则返回 1 */
         };
 #else
-        /* 对于lua 5.2 来说就直接查找 register.tolua_peers */
+        /* 对于lua 5.2 来说就直接查找 registry.tolua_peers */
         lua_pushstring(L,"tolua_peers");
         lua_rawget(L,LUA_REGISTRYINDEX);        /* stack: obj key ubox */
         lua_pushvalue(L,1);
@@ -402,6 +402,14 @@ static int class_newindex_event (lua_State* L)
     return 0;
 }
 
+/**
+ *  调用.call方法
+ *
+ *  @param L 状态机
+ *
+ *  @return 1 : 成功
+ *  @return 0 : 出错
+ */
 static int class_call_event(lua_State* L) {
 
     if (lua_istable(L, 1)) {
@@ -420,7 +428,9 @@ static int class_call_event(lua_State* L) {
 };
 
 /**
+ *  前提：栈中含有两个对象以供操作
  *
+ *  直接查找第一个对象的元表中的元方法
  *
  *  @param L  状态机
  *  @param op 操作
@@ -430,15 +440,16 @@ static int class_call_event(lua_State* L) {
  */
 static int do_operator (lua_State* L, const char* op)
 {
+    /* 要保证第一个参数为用户数据 */
     if (lua_isuserdata(L,1))
     {
         /* Try metatables */
-        lua_pushvalue(L,1);                     /* stack: op1 op2 */
+        lua_pushvalue(L,1);                     /* stack: op1 op2 op1w */
         while (lua_getmetatable(L,-1))
         {   /* stack: op1 op2 op1 mt */
-            lua_remove(L,-2);                      /* stack: op1 op2 mt */
-            lua_pushstring(L,op);                  /* stack: op1 op2 mt key */
-            lua_rawget(L,-2);                      /* stack: obj key mt func */
+            lua_remove(L,-2);                   /* stack: op1 op2 mt */
+            lua_pushstring(L,op);               /* stack: op1 op2 mt key */
+            lua_rawget(L,-2);                   /* stack: obj key mt func */
             if (lua_isfunction(L,-1))
             {
                 lua_pushvalue(L,1);
@@ -449,51 +460,108 @@ static int do_operator (lua_State* L, const char* op)
             lua_settop(L,3);
         }
     }
+    /* 错误调用，返回出错信息 */
     tolua_error(L,"Attempt to perform operation on an invalid operand",NULL);
     return 0;
 }
 
+/**
+ *  add方法
+ *
+ *  @param L 状态机
+ *
+ *  @return 1 : 正确调用
+ *  @return 0 : 错误调用
+ */
 static int class_add_event (lua_State* L)
 {
     return do_operator(L,".add");
 }
 
+/**
+ *  sub方法
+ *
+ *  @param L 状态机
+ *
+ *  @return 1 : 正确调用
+ *  @return 0 : 错误调用
+ */
 int class_sub_event (lua_State* L)
 {
     return do_operator(L,".sub");
 }
 
+/**
+ *  mul方法
+ *
+ *  @param L 状态机
+ *
+ *  @return 1 : 正确调用
+ *  @return 0 : 错误调用
+ */
 static int class_mul_event (lua_State* L)
 {
     return do_operator(L,".mul");
 }
 
+/**
+ *  div方法
+ *
+ *  @param L 状态机
+ *
+ *  @return 1 : 正确调用
+ *  @return 0 : 错误调用
+ */
 static int class_div_event (lua_State* L)
 {
     return do_operator(L,".div");
 }
 
+/**
+ *  lt方法
+ *
+ *  @param L 状态机
+ *
+ *  @return 1 : 正确调用
+ *  @return 0 : 错误调用
+ */
 static int class_lt_event (lua_State* L)
 {
     return do_operator(L,".lt");
 }
 
+/**
+ *  le方法
+ *
+ *  @param L 状态机
+ *
+ *  @return 1 : 正确调用
+ *  @return 0 : 错误调用
+ */
 static int class_le_event (lua_State* L)
 {
     return do_operator(L,".le");
 }
 
+/**
+ *  eq方法
+ *
+ *  @param L 状态机
+ *
+ *  @return 1 : 正确调用
+ *  @return 0 : 错误调用
+ */
 static int class_eq_event (lua_State* L)
 {
     /* copying code from do_operator here to return false when no operator is found */
     if (lua_isuserdata(L,1))
     {
         /* Try metatables */
-        lua_pushvalue(L,1);                     /* stack: op1 op2 */
+        lua_pushvalue(L,1);                        /* stack: op1 op2 op1 */
         while (lua_getmetatable(L,-1))
         {   /* stack: op1 op2 op1 mt */
             lua_remove(L,-2);                      /* stack: op1 op2 mt */
-            lua_pushstring(L,".eq");                  /* stack: op1 op2 mt key */
+            lua_pushstring(L,".eq");               /* stack: op1 op2 mt key */
             lua_rawget(L,-2);                      /* stack: obj key mt func */
             if (lua_isfunction(L,-1))
             {
@@ -504,8 +572,10 @@ static int class_eq_event (lua_State* L)
             }
             lua_settop(L,3);
         }
-    }
+    } /* 到此为止都和 do_operator 一样 */
+    
 
+    /* 对于等于比较永远不会出错，成功调用，入栈0 */
     lua_settop(L, 3);
     lua_pushboolean(L, 0);
     return 1;
@@ -532,6 +602,15 @@ static int class_gc_event (lua_State* L)
     return 0;
 }
 */
+
+/**
+ *  垃圾回收事件
+ *
+ *  @param L 状态机
+ *
+ *  @return 1 : 成功调用
+ *  @return 0 : 失败调用
+ */
 TOLUA_API int class_gc_event (lua_State* L)
 {
     void* u = *((void**)lua_touserdata(L,1));
