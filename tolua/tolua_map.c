@@ -70,7 +70,8 @@ static int tolua_newmetatable (lua_State* L, const char* name)
  * 
  *  将所有基类和基类元表加入reg.tolua_super表中
  * 
- *  即 reg.tolua_super[base] = {}
+ *  reg.tolua_super[registry.name] = {}
+ *  reg.tolua_super[registry.name][base] = true
  *
  *  @param L    状态机
  *  @param name 子类
@@ -715,7 +716,7 @@ TOLUA_API int tolua_default_collect (lua_State* tolua_S)
 /**
  *  Do clone
  *
- *  
+ *  垃圾回收注册
  *
  *  @param L  状态机
  *  @param lo 栈中位置
@@ -760,7 +761,9 @@ TOLUA_API int tolua_register_gc (lua_State* L, int lo)
  *
  *  It maps 'const type' as being also a 'type'
  *
- *
+ *  在register中加入两个类型。
+ *  
+ *  并且在tolua_super中加入
  *
  *  @param L    状态机
  *  @param type 类型
@@ -771,6 +774,7 @@ TOLUA_API void tolua_usertype (lua_State* L, const char* type)
     strncat(ctype,type,120);
 
     /* create both metatables */
+    /* 创建reg["const xxxx"] 和 reg["xxxx"] */
     if (tolua_newmetatable(L,ctype) && tolua_newmetatable(L,type))
         mapsuper(L,type,ctype);             /* 'type' is also a 'const type' */
 }

@@ -7,7 +7,7 @@ tolua++源码注释
 
 ## tolua++
 
-从`PROJECTDIR/external/tolua`拷贝
+从`PROJECTDIR/external/tolua`拷贝，其中代码对__lua5.1__和__lua5.2__做了兼容
 
 - tolua++.h
 - tolua\_event.c & h
