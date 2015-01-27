@@ -253,7 +253,7 @@ static void mapinheritance (lua_State* L, const char* name, const char* base)
  *
  *  @param L 状态机
  *
- *  @return 1
+ *  @return 1 : 表示成功调用
  */
 static int tolua_bnd_type (lua_State* L)
 {
@@ -262,24 +262,31 @@ static int tolua_bnd_type (lua_State* L)
 }
 
 /**
- * Take ownership
+ *  Take ownership
  *
+ *  tolua.takeowership(userdata)
+ *
+ *  lua垃圾回收机制，增加对象的引用？
  *
  *  @param L 状态机
  *
- *  @return 1 : 成功
+ *  @return 1 : 成功，不论如何都是调用成功
  *  @return 0 : 失败
  */
 static int tolua_bnd_takeownership (lua_State* L)
 {
     int success = 0;
+    /* 检查第一个参数是否是用户数据 */
     if (lua_isuserdata(L,1))
     {
+        /* 检查是有元表的 */
         if (lua_getmetatable(L,1))        /* if metatable? */
         {
+            /* 将元表出栈 */
             lua_pop(L,1);             /* clear metatable off stack */
             /* force garbage collection to avoid C to reuse a to-be-collected address */
 #ifdef LUA_VERSION_NUM
+            /* 强行进行一次垃圾回收 */
             lua_gc(L, LUA_GCCOLLECT, 0);
 #else
             lua_setgcthreshold(L,0);
@@ -288,43 +295,77 @@ static int tolua_bnd_takeownership (lua_State* L)
             success = tolua_register_gc(L,1);
         }
     }
+    /* 将结果入栈 */
     lua_pushboolean(L,success!=0);
+    /* 不论如何都是调用成功 */
     return 1;
 }
 
-/* Release ownership
-*/
+/**
+ *  Release ownership
+ *
+ *  tolua.releaseownership(userdata)
+ *
+ *  lua垃圾回收机制，释放cpp对象？
+ *
+ *  @param L 状态机
+ *
+ *  @return 1 : 成功调用
+ */
 static int tolua_bnd_releaseownership (lua_State* L)
 {
     int done = 0;
     if (lua_isuserdata(L,1))
     {
+        /* 获得用户数据地址 */
         void* u = *((void**)lua_touserdata(L,1));
         /* force garbage collection to avoid releasing a to-be-collected address */
 #ifdef LUA_VERSION_NUM
+        /* 强制垃圾回收 */
         lua_gc(L, LUA_GCCOLLECT, 0);
 #else
         lua_setgcthreshold(L,0);
 #endif
+        /* 入栈reg.tolua_gc表 */
         lua_pushstring(L,"tolua_gc");
         lua_rawget(L,LUA_REGISTRYINDEX);
+        
+        /* 入栈用户数据地址 */
         lua_pushlightuserdata(L,u);
+        /* 在reg.tolua_gc表中查询 */
+        /* 在reg.tolua_gc[用户数据地址] */
         lua_rawget(L,-2);
+        /* 获取用户数据的元表 */
         lua_getmetatable(L,1);
+        /* 比较用户数据元表和reg.tolua_gc中查询到的值是否一致 */
+        /* 保证释放对了对象 */
         if (lua_rawequal(L,-1,-2))  /* check that we are releasing the correct type */
         {
+            /* 在reg.tolua_gc[用户数据地址] = nil */
             lua_pushlightuserdata(L,u);
             lua_pushnil(L);
             lua_rawset(L,-5);
+            
             done = 1;
         }
     }
+    /* 返回结果 */
     lua_pushboolean(L,done!=0);
     return 1;
 }
 
-/* Type casting
-*/
+/**
+ *  Type casting
+ *
+ *  tolua.cast(userdata)
+ *  tolua.cast(table)
+ *
+ *  对象强制转换
+ *
+ *  @param L 状态机
+ *
+ *  @return 1 : 表示成功调用
+ */
 int tolua_bnd_cast (lua_State* L)
 {
 
@@ -340,6 +381,7 @@ int tolua_bnd_cast (lua_State* L)
 
     void* v;
     const char* s;
+    /* 若是用户数据地址 */
     if (lua_islightuserdata(L, 1)) {
         v = tolua_touserdata(L, 1, NULL);
     } else {
@@ -354,16 +396,35 @@ int tolua_bnd_cast (lua_State* L)
     return 1;
 }
 
-/* Test userdata is null
-*/
+/**
+ *  Test userdata is null
+ *
+ *  tolua.isnull(userdata)
+ *
+ *  测试用户数据是否是nil，将结果入栈
+ *
+ *  @param L 状态机
+ *
+ *  @return 1 : 表示成功调用
+ */
 static int tolua_bnd_isnulluserdata (lua_State* L) {
     void **ud = (void**)lua_touserdata(L, -1);
     tolua_pushboolean(L, ud == NULL || *ud == NULL);
     return 1;
 }
 
-/* Inheritance
-*/
+
+/**
+ *  Inheritance
+ *
+ *  tolua.inherit(luaobj, cobj)
+ *
+ *  设置.c_instace的值，在lua对象中加入c对象
+ *
+ *  @param L 状态机
+ *
+ *  @return 0
+ */
 static int tolua_bnd_inherit (lua_State* L) {
 
     /* stack: lua object, c object */
@@ -376,30 +437,54 @@ static int tolua_bnd_inherit (lua_State* L) {
 };
 
 #ifdef LUA_VERSION_NUM /* lua 5.1 */
+/**
+ *
+ *  tolua.setpeer(userdata, [table])
+ * 
+ *  当talbe缺省时，将TOLUA_NOPEER入栈（registry)
+ *
+ *  设置用户数据的环境表
+ *
+ *  @param L 状态机
+ *
+ *  @return 0
+ */
 static int tolua_bnd_setpeer(lua_State* L) {
 
     /* stack: userdata, table */
+    /* 检查栈中对象是否合法 */
     if (!lua_isuserdata(L, -2)) {
         lua_pushstring(L, "Invalid argument #1 to setpeer: userdata expected.");
         lua_error(L);
     };
 
-    if (lua_isnil(L, -1)) {
-
+    if (lua_isnil(L, -1)) { /* 若栈顶为空 */
         lua_pop(L, 1);
+        /* 将环境表入栈 */
         lua_pushvalue(L, TOLUA_NOPEER);
     };
+    /* 将用户数据的环境表设置为TOLUA_NOPEER */
     lua_setfenv(L, -2);
 
     return 0;
 };
 
+/**
+ *  tolua.getpeer(userdata)
+ *
+ *  @param L 状态机
+ *
+ *  @return 1
+ */
 static int tolua_bnd_getpeer(lua_State* L) {
 
     /* stack: userdata */
+    /* 获取用户数据的环境表 */
     lua_getfenv(L, -1);
-    if (lua_rawequal(L, -1, TOLUA_NOPEER)) {
+    
+    if (lua_rawequal(L, -1, TOLUA_NOPEER)) { /* 如果环境表不是TOLUA_NOPEER */
         lua_pop(L, 1);
+        /* 返回 nil */
         lua_pushnil(L);
     };
     return 1;
@@ -586,10 +671,20 @@ TOLUA_API void tolua_open (lua_State* L)
     lua_settop(L,top);
 }
 
-/* Copy a C object
-*/
+/**
+ *  Copy a C object
+ *
+ *  拷贝一个c对象
+ *
+ *  @param L     状态机
+ *  @param value 用户数据
+ *  @param size  大小
+ * 
+ *  @return 拷贝对象
+ */
 TOLUA_API void* tolua_copy (lua_State* L, void* value, unsigned int size)
 {
+    
     void* clone = (void*)malloc(size);
     if (clone)
         memcpy(clone,value,size);
@@ -598,29 +693,58 @@ TOLUA_API void* tolua_copy (lua_State* L, void* value, unsigned int size)
     return clone;
 }
 
-/* Default collect function
-*/
+/**
+ *  Default collect function
+ *
+ *  默认垃圾回收函数
+ *
+ *  @param tolua_S 状态机
+ *
+ *  @return 0
+ */
 TOLUA_API int tolua_default_collect (lua_State* tolua_S)
 {
+    /* 获取到用户数据 */
     void* self = tolua_tousertype(tolua_S,1,0);
+    /* 将其释放 */
     free(self);
     return 0;
 }
 
-/* Do clone
-*/
+
+/**
+ *  Do clone
+ *
+ *  
+ *
+ *  @param L  状态机
+ *  @param lo 栈中位置
+ *
+ *  @return 1 : 成功
+ *  @return 0 : 失败
+ */
 TOLUA_API int tolua_register_gc (lua_State* L, int lo)
 {
     int success = 1;
+    /* 获得用户数据地址 */
     void *value = *(void **)lua_touserdata(L,lo);
+    
+    /* 将reg.tolua_gc入栈 */
     lua_pushstring(L,"tolua_gc");
     lua_rawget(L,LUA_REGISTRYINDEX);
+    
+    /* 将用户数据地址入栈 */
     lua_pushlightuserdata(L,value);
+    
+    /* 在tolua_gc中查找用户数据对应的值 */
     lua_rawget(L,-2);
+    
+    /* 如果不为空，则失败，表示这个对象已经被引用 */
     if (!lua_isnil(L,-1)) /* make sure that object is not already owned */
         success = 0;
-    else
+    else /* 如果为空的话 */
     {
+        /* 将对象加入tolua_gc中 */
         lua_pushlightuserdata(L,value);
         lua_getmetatable(L,lo);
         lua_rawset(L,-4);
@@ -629,10 +753,18 @@ TOLUA_API int tolua_register_gc (lua_State* L, int lo)
     return success;
 }
 
-/* Register a usertype
-    * It creates the correspoding metatable in the registry, for both 'type' and 'const type'.
-    * It maps 'const type' as being also a 'type'
-*/
+/**
+ *  Register a usertype
+ *
+ *  It creates the correspoding metatable in the registry, for both 'type' and 'const type'.
+ *
+ *  It maps 'const type' as being also a 'type'
+ *
+ *
+ *
+ *  @param L    状态机
+ *  @param type 类型
+ */
 TOLUA_API void tolua_usertype (lua_State* L, const char* type)
 {
     char ctype[128] = "const ";

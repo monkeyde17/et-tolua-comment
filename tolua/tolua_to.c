@@ -76,11 +76,13 @@ TOLUA_API void* tolua_touserdata (lua_State* L, int narg, void* def)
 extern int push_table_instance(lua_State* L, int lo);
 
 /**
- *
+ *  转换成用户类型
  *
  *  @param L    状态机
  *  @param narg 栈中位置
  *  @param def  预设值
+ *
+ *  @return 用户数据类型地址
  */
 TOLUA_API void* tolua_tousertype (lua_State* L, int narg, void* def)
 {
@@ -89,9 +91,11 @@ TOLUA_API void* tolua_tousertype (lua_State* L, int narg, void* def)
     else
     {
         void* u;
-        if (!lua_isuserdata(L, narg)) {
+        if (!lua_isuserdata(L, narg)) { /* 若narg储不是用户数据 */
+            /* 尝试入栈表中.c_instance字段 */
             if (!push_table_instance(L, narg)) return NULL;
         };
+        /* 获得用户数据 */
         u = lua_touserdata(L,narg);
         return (u==NULL) ? NULL : *((void**)u); /* nil represents NULL */
     }
