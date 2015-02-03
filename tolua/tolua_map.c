@@ -37,9 +37,9 @@
  */
 static int tolua_newmetatable (lua_State* L, const char* name)
 {
-    /* 创建一个新的元表 */
-    /* 将元表添加到全局注册表中 */
-    /* registry.name = {} */
+    /* 创建一个 表t */
+    /* 注册 表t */
+    /* reg.name = {} */
     int r = luaL_newmetatable(L,name);
 
 #ifdef LUA_VERSION_NUM /* only lua 5.1 */
@@ -48,9 +48,9 @@ static int tolua_newmetatable (lua_State* L, const char* name)
         lua_pushstring(L, name);
         
         /* lua5.1需要重新查询一次，将元表放到栈顶 */
-        /* 是将返回的 表r 作为键 name 作为值 */
-        /* registry.r = name */
-        lua_settable(L, LUA_REGISTRYINDEX); /* reg[mt] = type_name */
+        /* 是将返回的 表r 作为键，name作为值 */
+        /* reg.r = name */
+        lua_settable(L, LUA_REGISTRYINDEX);
     };
 #endif
 
@@ -69,9 +69,9 @@ static int tolua_newmetatable (lua_State* L, const char* name)
  *  It sets 'name' as being also a 'base', mapping all super classes of 'base' in 'name'
  * 
  *  将所有基类和基类元表加入reg.tolua_super表中
- * 
- *  reg.tolua_super[registry.name] = {}
- *  reg.tolua_super[registry.name][base] = true
+ *
+ *  reg.tolua_super[reg.name] = {}
+ *  reg.tolua_super[reg.name][base] = true
  *
  *  @param L    状态机
  *  @param name 子类
@@ -498,59 +498,35 @@ static int tolua_bnd_getpeer(lua_State* L) {
  *
  *  主要在 register 中做了以下事情：
  *
- *      1. register.tolua_opened = true
- *
- *      2. register.tolua_value_root = {} -- TOLUA_VALUE_ROOT
- *
- *      3. register.tolua_peers = {__mode = "k"} -- for lua 5.1
- *
- *      4. register.tolua_ubox = {__mode = "v"}
- *
- *      5. register.tolua_super = {}
- *
- *      6. register.tolua_gc = {}
- *
- *      7. register.tolua_gc_event = cfunc_calss_gc_event(tolua_gc, tolua_super) ... end
- *
- *      8. register.tolua_commonclass = {
- *
+ *      1. reg.tolua_opened = true
+ *      2. reg.tolua_value_root = {} -- TOLUA_VALUE_ROOT
+ *      3. reg.tolua_peers = {__mode = "k"} -- for lua 5.1
+ *      4. reg.tolua_ubox = {__mode = "v"}
+ *      5. reg.tolua_super = {}
+ *      6. reg.tolua_gc = {}
+ *      7. reg.tolua_gc_event = cfunc_calss_gc_event(tolua_gc, tolua_super) ... end
+ *      8. reg.tolua_commonclass = {
  *              __index     = class_index_event,
- *
  *              __newindex  = class_newindex_event,
- *
  *              __add       = class_add_event,
- *
  *              __sub       = class_sub_event,
- *
  *              __mul       = class_mul_event,
- *
  *              __div       = class_div_event,
- *
  *              __lt        = class_lt_event,
- *
  *              __le        = class_le_event,
- *
  *              __eq        = class_eq_event,
- *
  *              __call      = class_call_event,
- *
  *              __gc        = register.tolua_gc_event,
  *      }
  *
  *  还有在 global 中做了以下事情：这些在lua中可以访问
  *
  *      1. global.tolua.type = cfunc
- *
  *      2. global.tolua.takeownership = cfunc
- *
  *      3. global.tolua.cast = cfunc
- *
  *      4. global.tolua.isnull = cfunc
- *
  *      5. global.tolua.inherit = cfunc
- *
  *      6. global.tolua.getpeer = cfunc
- *
  *      7. global.tolua.setpeer = cfunc
  *
  *  @param L 状态机
@@ -560,56 +536,59 @@ TOLUA_API void tolua_open (lua_State* L)
     int top = lua_gettop(L);
     lua_pushstring(L,"tolua_opened");
     lua_rawget(L,LUA_REGISTRYINDEX);
-    /* 检查是否已经打开过 */
-    if (!lua_isboolean(L,-1))
+    
+    if (!lua_isboolean(L,-1)) /* 检查是否已经打开过 */
     {
         /* 将tolua_opened设置为true */
+        /* 标记已经配置好tolua环境 */
         lua_pushstring(L,"tolua_opened");
         lua_pushboolean(L,1);
         lua_rawset(L,LUA_REGISTRYINDEX);
         
-        // create value root table
-        /* 创建一个表，全局注册表索引为 TOLUA_VALUE_ROOT */
+        /* TOLUA_VALUE_ROOT 为 tolua_value_root */
+        /* reg.tolua_value_root = {} */
         lua_pushstring(L, TOLUA_VALUE_ROOT);
-        /* 创建一个table，入栈 */
+        /* 创建一个 表 并入栈 */
         lua_newtable(L);
+        /* 注册 表tolua_value_root */
         lua_rawset(L, LUA_REGISTRYINDEX);
 
-#ifndef LUA_VERSION_NUM /* only prior to lua 5.1 */
-        /* create peer object table */
-        /* 创建tolua_peers映射 */
-        /* 只对lua5.1有效 */
+        /* 创建 表tolua_peers 替代lua5.1中的环境表 */
+#ifndef LUA_VERSION_NUM     /* 只对lua5.2有效 */
         lua_pushstring(L, "tolua_peers");
         /* 创建一个 表t */
         lua_newtable(L);
-        /* make weak key metatable for peers indexed by userdata object */
-        /* 创建 t表 的元表 -- 表mt */
+        /* 创建 表t 的 元表mt */
+        /* 表t 的键都是 userdata对象 */
+        /* 所以需要 表t 是一个键弱引用表 */
         lua_newtable(L);
             /* 将 表mt 的__mode字段设置成"k" */
             /* 表示 表mt 的键是若引用的 */
             lua_pushliteral(L, "__mode");
             lua_pushliteral(L, "k");
-            lua_rawset(L, -3);                /* stack: string peers mt */
-        /* 将表t的元表设置成表mt */
-        lua_setmetatable(L, -2);   /* stack: string peers */
+            lua_rawset(L, -3);              /* stack: string peers mt */
+        /* 将 表t 的元表设置成 表mt */
+        lua_setmetatable(L, -2);            /* stack: string peers */
     
-        /* 注册到全局注册表中 */
+        /* 注册 表tolua_peer */
         lua_rawset(L,LUA_REGISTRYINDEX);
 #endif
-
         /* create object ptr -> udata mapping table */
-        /* 创建tolua_ubox映射 */
+        /* 创建 表tolua_ubox */
+        /* 表tolua_ubox 是 对象地址 到 对象数据 的映射 */
         lua_pushstring(L,"tolua_ubox");
         lua_newtable(L);
         /* make weak value metatable for ubox table to allow userdata to be
            garbage-collected */
+        /* 值弱引用表能够让用户数据被垃圾回收 */
         lua_newtable(L);
             /* 将 表mt 的__mode字段设置成"v" */
             /* 表示 表mt 的值是弱引用的 */
             lua_pushliteral(L, "__mode");
             lua_pushliteral(L, "v");
-            lua_rawset(L, -3);               /* stack: string ubox mt */
-        lua_setmetatable(L, -2);  /* stack: string ubox */
+            lua_rawset(L, -3);              /* stack: string ubox mt */
+        lua_setmetatable(L, -2);            /* stack: string ubox */
+        /* 注册 表tolua_ubox */
         lua_rawset(L,LUA_REGISTRYINDEX);
         
 //        /* create object ptr -> class type mapping table */
@@ -617,12 +596,12 @@ TOLUA_API void tolua_open (lua_State* L)
 //        lua_newtable(L);
 //        lua_rawset(L, LUA_REGISTRYINDEX);
 
-        /* 注册super表 */
+        /* 注册 表tolua_super */
         lua_pushstring(L,"tolua_super");
         lua_newtable(L);
         lua_rawset(L,LUA_REGISTRYINDEX);
         
-        /* 注册gc表 */
+        /* 注册 表tolua_gc */
         lua_pushstring(L,"tolua_gc");
         lua_newtable(L);
         lua_rawset(L,LUA_REGISTRYINDEX);
@@ -635,8 +614,8 @@ TOLUA_API void tolua_open (lua_State* L)
             lua_rawget(L, LUA_REGISTRYINDEX);
             lua_pushstring(L, "tolua_super");
             lua_rawget(L, LUA_REGISTRYINDEX);
-        /* 注册闭包到全局注册表 */
         lua_pushcclosure(L, class_gc_event, 2);
+        /* 注册 闭包gc_event */
         lua_rawset(L, LUA_REGISTRYINDEX);
 
         /* 新建一个表，并重新注册各种元方法 */

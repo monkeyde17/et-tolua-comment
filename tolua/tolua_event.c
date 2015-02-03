@@ -22,57 +22,66 @@
  *  It stores, creating the corresponding table if needed,
  *  the pair key/value in the corresponding ubox table
  *
- *  期望：在栈顶包含键值对
- * 
- *  将键值对加入环境表中，
+ *  期望：栈中 obj ... k v
+ *
+ *  将键值对加入用户数据obj的环境表env中
  *
  *  @param L  状态机
- *  @param lo 表位置
+ *  @param lo 用户数据栈中位置
  */
 static void storeatubox (lua_State* L, int lo)
 {
-    /* stack : k, v */
-#ifdef LUA_VERSION_NUM
-    /* 获得环境表 */
+#ifdef LUA_VERSION_NUM                  /* lua 5.1 */
+    /* 获得 用户数据obj 的 环境表 env */
     lua_getfenv(L, lo);
-    if (lua_rawequal(L, -1, TOLUA_NOPEER)) { /* 若环境表为 register */
+    
+    if (lua_rawequal(L, -1, TOLUA_NOPEER)) { /* 若环境表为 registry */
         lua_pop(L, 1);
         
-        /* 新建一个表 */
+        /* 新建 表t */
         lua_newtable(L);
         
-        /* 将新建的表设置成lo处表的环境表 */
+        /* 将 表t 设置成 用户数据obj 的环境表 */
         lua_pushvalue(L, -1);
         lua_setfenv(L, lo);
-    };
+    };                                  /* stack: obj k v env */
     
-    /* stack: k, v, env_table */
     
     /* 将环境表移到键值对前 */
-    /* 然后设置键值对 */
-    lua_insert(L, -3);      /* stack: env_table, k, v */
+    lua_insert(L, -3);                  /* stack: obj env k v */
+    /* 将键值加入 环境表env 中 */
+    /* env.k = v */
     lua_settable(L, -3);    /* on lua 5.1, we trade the "tolua_peers" lookup for a settable call */
     
-    /* 将环境表出栈 */
+    /* 将 环境表env 出栈 */
     lua_pop(L, 1);
-#else
-    /* stack: key value (to be stored) */
+#else                                   /* lua 5.2 */
+    
+    /* 获得 表tolua_peers */
     lua_pushstring(L,"tolua_peers");
-    lua_rawget(L,LUA_REGISTRYINDEX);        /* stack: k v ubox */
+    lua_rawget(L,LUA_REGISTRYINDEX);    /* stack: obj k v ubox */
+    
+    /* 将 用户数据obj 入栈 */
     lua_pushvalue(L,lo);
-    lua_rawget(L,-2);                       /* stack: k v ubox ubox[u] */
-    if (!lua_istable(L,-1))
+    /* 即获得 环境表替代 */
+    lua_rawget(L,-2);                   /* stack: obj k v ubox ubox[obj] */
+    
+    if (!lua_istable(L,-1)) /* 若没有对应环境表，新建一个 */
     {
-        lua_pop(L,1);                          /* stack: k v ubox */
-        lua_newtable(L);                       /* stack: k v ubox table */
-        lua_pushvalue(L,1);
-        lua_pushvalue(L,-2);                   /* stack: k v ubox table u table */
-        lua_rawset(L,-4);                      /* stack: k v ubox ubox[u]=table */
+        lua_pop(L,1);                   /* stack: obj k v ubox */
+        lua_newtable(L);                /* stack: obj k v ubox table */
+        lua_pushvalue(L,1);             /* stack: obj k v ubox table obj */
+        lua_pushvalue(L,-2);            /* stack: obj k v ubox table obj table */
+        lua_rawset(L,-4);               /* stack: obj k v ubox table ubox[obj]=table */
     }
-    lua_insert(L,-4);                       /* put table before k */
-    lua_pop(L,1);                           /* pop ubox */
-    lua_rawset(L,-3);                       /* store at table */
-    lua_pop(L,1);                           /* pop ubox[u] */
+    /* 将环境表 插入到键之前 */
+    lua_insert(L,-4);                   /* stack: obj table k v ubox  */
+    /* 弹出 tolua_peers */
+    lua_pop(L,1);
+    /* 将键值对加入到 环境表 中 */
+    lua_rawset(L,-3);
+    /* 将环境表出栈 */
+    lua_pop(L,1);
 #endif
 }
 
@@ -89,44 +98,41 @@ static void storeatubox (lua_State* L, int lo)
  */
 static int module_index_event (lua_State* L)
 {
-    /* 获取表table[".get"]的值 get_t */
-    lua_pushstring(L,".get");   /* stack : table key ".get" */
-    lua_rawget(L,-3);           /* stack : table key get_t */
+    /* 获取表table[".get"]的值*/
+    lua_pushstring(L,".get");
+    lua_rawget(L,-3);                   /* stack : t k get_t:=t[".get"] */
     
-    /* 是否含有get表 */
     /* 这里是模块内的变量访问的方法 */
-    if (lua_istable(L,-1))
+    if (lua_istable(L,-1))              /* get_t是一个表 */
     {
-        lua_pushvalue(L,2);     /* stack : table key get_t key */
-        lua_rawget(L,-2);       /* stack : table key get_t get_t.key */
-        /* 若是栈顶是一个c函数 -- get函数 */
-        if (lua_iscfunction(L,-1))
+        lua_pushvalue(L,2);             /* stack : t k get_t key */
+        lua_rawget(L,-2);               /* stack : t k get_t value:=get_t[key] */
+        if (lua_iscfunction(L,-1))      /* value是get函数，直接调用 */
         {
-            lua_call(L,0,1);    /* stack : table key get_t return_value */
+            lua_call(L,0,1);
             return 1;
         }
-        /* 若是一个表*/
-        else if (lua_istable(L,-1))
-            return 1;           /* stack : table key get_t get_t.key */
+        else if (lua_istable(L,-1))     /* value是一个表，直接返回该value*/
+            return 1;                   /* stack : t k get_t value */
     }
-    /* call old index meta event */
-    /* 如果不是一个表，则查询第一个参数的元表 */
-    if (lua_getmetatable(L,1))  /* stack : table key get_t mt */
+    
+    /* 如果不是一个表，则查询 表t 的 元表mt */
+    if (lua_getmetatable(L,1))          /* stack : t k get_t mt */
     {
         /* 获取__index元方法 */
         lua_pushstring(L,"__index");
-        lua_rawget(L,-2);       /* stack : table key get_t mt.__index */
+        lua_rawget(L,-2);               /* stack : t k get_t idx:=mt.__index */
         
-        lua_pushvalue(L,1);     /* stack : table key get_t mt.__index table */
-        lua_pushvalue(L,2);     /* stack : table key get_t mt.__index table key */
-        if (lua_isfunction(L,-1)) /* 对于这个-1我只能猜想key和mt.index是同一种类型了 */
+        lua_pushvalue(L,1);
+        lua_pushvalue(L,2);             /* stack : t k get_t idx t k */
+        if (lua_isfunction(L,-1))       /* 对于这个-1我只能猜想k和idx是同一种类型了 */
         {
-            lua_call(L,2,1);    /* stack : table key get_t return_val */
+            lua_call(L,2,1);
             return 1;
         }
-        else if (lua_istable(L,-1))
+        else if (lua_istable(L,-1))     /* 键是一个表 */
         {
-            lua_gettable(L,-3); /* stack : table key get_t mt.__index table mt.__index.key */
+            lua_gettable(L,-3);         /* stack : t k get_t idx t idx[k] */
             return 1;
         }
     }
@@ -201,87 +207,96 @@ static int module_newindex_event (lua_State* L)
  */
 static int class_index_event (lua_State* L)
 {
-    
     /* 获取栈中第一个参数的类型 */
     int t = lua_type(L,1);
-    if (t == LUA_TUSERDATA) /* 若是用户数据 */
+    if (t == LUA_TUSERDATA)                         /* 若是用户数据 */
     {
         /* Access alternative table */
-#ifdef LUA_VERSION_NUM /* new macro on version 5.1 */
-        /* 对于lua5.1 */
-        /* 获得用户数据的环境表usr_env，并压入栈中 */
+        
+        /*****************************/
+        /* 先是查找用户数据对象的成员变量 */
+        /*****************************/
+        
+#ifdef LUA_VERSION_NUM                              /* 对于 lua5.1 */
+        /* 获得 用户数据 的 环境表env，并压入栈中 */
         lua_getfenv(L,1);
-        /* usr_evn表是否是 TOLUA_NOPEER(就是registry) */
-        if (!lua_rawequal(L, -1, TOLUA_NOPEER)) { /* 若不是，则为tolua_peers表 */
+        
+        if (!lua_rawequal(L, -1, TOLUA_NOPEER)) {   /* 表env 不是reg，则为自定义环境表 */
             /* 将栈中的键入栈 */
-            lua_pushvalue(L, 2); /* key */
-            /* 在tolua_peers表中查找 */
-            /* 即tolua_peers[key] */
-            lua_gettable(L, -2); /* on lua 5.1, we trade the "tolua_peers" lookup for a gettable call */
-            if (!lua_isnil(L, -1))
-                return 1; /* 若不为空则返回 1 */
+            lua_pushvalue(L, 2);                    /* stack: obj key env key */
+            /* 在表env中查找 */
+            /* 即env[key] */
+            /* on lua 5.1, we trade the "tolua_peers" lookup for a gettable call */
+            lua_gettable(L, -2);                    /* stack: obj key env[key] */
+            if (!lua_isnil(L, -1))                  /* 若不为空则返回 1 */
+                return 1;
         };
-#else
-        /* 对于lua 5.2 来说就直接查找 registry.tolua_peers */
+#else                                               /* lua 5.2 */
+        /* 直接入栈 reg.tolua_peers */
         lua_pushstring(L,"tolua_peers");
-        lua_rawget(L,LUA_REGISTRYINDEX);        /* stack: obj key ubox */
-        lua_pushvalue(L,1);
-        lua_rawget(L,-2);                       /* stack: obj key ubox ubox[u] */
+        lua_rawget(L,LUA_REGISTRYINDEX);            /* stack: obj key peer */
+        
+        lua_pushvalue(L,1);                         /* stack: obj key peer obj */
+        /* 获得对象对应的 环境表env */
+        lua_rawget(L,-2);                           /* stack: obj key peer env=peer[obj] */
+        
         if (lua_istable(L,-1))
         {
-            lua_pushvalue(L,2);  /* key */
-            lua_rawget(L,-2);                       /* stack: obj key ubox ubox[u] value */
+            lua_pushvalue(L,2);                     /* stack: obj key peer env key */
+            /* 在 环境表env 中查询 */
+            lua_rawget(L,-2);                       /* stack: obj key peer env value */
             if (!lua_isnil(L,-1))
                 return 1;
         }
 #endif
         
-        /* 栈中保留对象和键，其余清空 */
+        /***************************/
+        /* 然后是查找用户函数的get函数 */
+        /***************************/
+        
+        /* 重置栈顶 */
         lua_settop(L,2);                            /* stack: obj key */
-        /* Try metatables */
-        /* 将对象的元表入栈 */
+        
+        /* 将 用户数据obj 入栈 */
         lua_pushvalue(L,1);                         /* stack: obj key obj */
-        while (lua_getmetatable(L,-1))
-        {   /* stack: obj key obj mt */
+        while (lua_getmetatable(L,-1))              /* stack: obj key obj mt */
+        {
+            /* 删除 用户数据obj 的副本 */
             lua_remove(L,-2);                       /* stack: obj key mt */
-            /* 若键是一个数字 */
-            if (lua_isnumber(L,2))                  /* check if key is a numeric value */
+            if (lua_isnumber(L,2))                  /* 若键是一个数字 */
             {
-                /* try operator[] */
-                /* 访问元表中的 ".geti" 字段 */
+                /* 访问 元表mt 中的 ".geti" 字段 */
+                /* mt[".geti"] */
                 lua_pushstring(L,".geti");
-                lua_rawget(L,-2);                      /* stack: obj key mt func */
+                lua_rawget(L,-2);                   /* stack: obj key mt func=mt[".geti"] */
                 
-                /* 若 ".geti" 字段的值是一个函数，则调用，参数为obj和key */
                 if (lua_isfunction(L,-1))
                 {
                     lua_pushvalue(L,1);
                     lua_pushvalue(L,2);
+                    /* 调用获得的get函数 */
                     lua_call(L,2,1);
                     return 1;
                 }
             }
-            else /* 若是一个非数字的键 */
+            else                                    /* 若键非数字 */
             {
-                lua_pushvalue(L,2);                    /* stack: obj key mt key */
-                lua_rawget(L,-2);                      /* stack: obj key mt value */
+                lua_pushvalue(L,2);                 /* stack: obj key mt key */
+                lua_rawget(L,-2);                   /* stack: obj key mt value */
                 
-                /* 先直接访问元表中的 key 字段 */
-                if (!lua_isnil(L,-1))
-                    return 1;       /* 若找到该值，则返回 */
-                else
-                    lua_pop(L,1);   /* 若找不到该值，则将这个nil出栈 */
+                if (!lua_isnil(L,-1))               /* 检查value，若是有效值则返回 */
+                    return 1;
+                else                                /* 若是nil，则将这个nil出栈 */
+                    lua_pop(L,1);
                 
-                /* try C/C++ variable */
-                /* 然后再访问元表中的 ".get" 字段 */
+                /* 元表mt 中的 ".get" 字段 */
                 lua_pushstring(L,".get");
-                lua_rawget(L,-2);                       /* stack: obj key mt tget */
-                if (lua_istable(L,-1)) /* 查询到的值是一个表的话 */
+                lua_rawget(L,-2);                   /* stack: obj key mt tget=mt[".get"] */
+                if (lua_istable(L,-1))              /* tget是表 */
                 {
-                    /* 在.get表中查找该键 */
                     lua_pushvalue(L,2);
-                    lua_rawget(L,-2);                   /* stack: obj key mt value */
-                    if (lua_iscfunction(L,-1))          /* 若找到的值是一个函数 -- get函数 */
+                    lua_rawget(L,-2);               /* stack: obj key mt tget value=tget[key] */
+                    if (lua_iscfunction(L,-1))      /* value为函数，get函数，则直接调用 */
                     {
                         /* 调用这个函数，参数是obj和key */
                         lua_pushvalue(L,1);
@@ -289,43 +304,49 @@ static int class_index_event (lua_State* L)
                         lua_call(L,2,1);
                         return 1;
                     }
-                    else if (lua_istable(L,-1))         /* 若找到的是一个表 */
+                    else if (lua_istable(L,-1))      /* value是表，get表 */
                     {
-                        /* deal with array: create table to be returned and cache it in ubox */
+                        /* 获得用户数据地址 */
                         void* u = *((void**)lua_touserdata(L,1));
-                        lua_newtable(L);                /* stack: obj key mt value table */
-                            /* 将.self字段设置成用户数据的地址 */
-                            lua_pushstring(L,".self");
-                            lua_pushlightuserdata(L,u);
-                            lua_rawset(L,-3);           /* store usertype in ".self" */
-                        /* 交换 table 和 value 的位置 */
-                        lua_insert(L,-2);               /* stack: obj key mt table value */
-                        /* 将新建的这个表的元表设置mt[".get"][key] */
-                        lua_setmetatable(L,-2);         /* set stored value as metatable */
-                        lua_pushvalue(L,-1);            /* stack: obj key mt table table */
-                        lua_pushvalue(L,2);             /* stack: obj key mt table table key */
-                        lua_insert(L,-2);               /* stack: obj key mt table key table */
+                        lua_newtable(L);             /* stack: obj key mt tget value table */
                         
-                        /* 会为键值对创建环境表，并加入到环境表之中去 */
-                        storeatubox(L,1);               /* stack: obj key mt table */
+                        
+                        /* table[".self"] = 用户数据地址 */
+                        lua_pushstring(L,".self");
+                        lua_pushlightuserdata(L,u);
+                        lua_rawset(L,-3);
+                        
+                        /* 交换 table 和 value 的位置 */
+                        lua_insert(L,-2);            /* stack: obj key mt tget table value */
+                        /* 设置table的元表为value */
+                        lua_setmetatable(L,-2);
+                        /* 拷贝一份至栈顶 */
+                        lua_pushvalue(L,-1);         /* stack: obj key mt tget table table */
+                        lua_pushvalue(L,2);          /* stack: obj key mt tget table table key */
+                        lua_insert(L,-2);            /* stack: obj key mt tget table key table */
+                        
+                        
+                        /* obj.env[key] = table */
+                        storeatubox(L,1);            /* stack: obj key mt tget table */
                         return 1;
                     }
                 }
             }
-            /* 若没有查找到，则在元表的元表中继续查找 */
+            /* 在元表的元表中继续查找 */
             lua_settop(L,3);
         }
-        /* 递归查询完所有的元表之后还没找到则返回，并入栈nil */
+        /* 查询完所有的元表之后还没找到，则返回nil */
         lua_pushnil(L);
         return 1;
     }
-    else if (t== LUA_TTABLE) /* 若第一个参数是一个表 */
+    else if (t== LUA_TTABLE)                        /* 若第一个参数是一个表，从用户数据对象扩展的lua对象？ */
     {
-        /* 这个时候栈中参数为 table key */
+        /* 调用模块index事件 */
         module_index_event(L);
         return 1;
     }
-    /* 所有情况都没有找到，返回，并入栈nil */
+    
+    /* 所有情况都没有找到，返回nil */
     lua_pushnil(L);
     return 1;
 }
@@ -338,6 +359,7 @@ static int class_index_event (lua_State* L)
  *  Then, it either stores it in the alternative ubox table (in the case it is
  *  an object) or in the own table (that represents the class or module).
  *
+ *  当用户数据 的 set方法
  *
  *  @param L 状态机
  *
@@ -346,17 +368,21 @@ static int class_index_event (lua_State* L)
 static int class_newindex_event (lua_State* L)
 {
     int t = lua_type(L,1);
-    if (t == LUA_TUSERDATA) /* 若是用户数据 */
+    if (t == LUA_TUSERDATA)                     /* 若是用户数据 */
     {
         /* Try accessing a C/C++ variable to be set */
+        
+        /* 获得 用户数据obj 的 元表mt */
         lua_getmetatable(L,1);
-        while (lua_istable(L,-1))                /* stack: t k v mt */
+        while (lua_istable(L,-1))               /* stack: obj k v mt */
         {
-            if (lua_isnumber(L,2))                 /* check if key is a numeric value */
+            if (lua_isnumber(L,2))              /* 键是否为 数字 */
             {
                 /* try operator[] */
+                /* 在 元表mt 中查询，获得set函数 */
+                /* func = mt[".seti"] */
                 lua_pushstring(L,".seti");
-                lua_rawget(L,-2);                      /* stack: obj key mt func */
+                lua_rawget(L,-2);               /* stack: obj k v mt func */
                 if (lua_isfunction(L,-1))
                 {
                     lua_pushvalue(L,1);
@@ -366,14 +392,18 @@ static int class_newindex_event (lua_State* L)
                     return 0;
                 }
             }
-            else
+            else                                /* 键不为数字 */
             {
+                /* 获得 mt[".set"] */
+                /* 获得 表tset */
                 lua_pushstring(L,".set");
-                lua_rawget(L,-2);                      /* stack: t k v mt tset */
+                lua_rawget(L,-2);               /* stack: obj k v mt tset */
                 if (lua_istable(L,-1))
                 {
+                    /* 根据键查找 set函数 */
+                    /* func = tset.k */
                     lua_pushvalue(L,2);
-                    lua_rawget(L,-2);                     /* stack: t k v mt tset func */
+                    lua_rawget(L,-2);           /* stack: obj k v mt tset func */
                     if (lua_iscfunction(L,-1))
                     {
                         lua_pushvalue(L,1);
@@ -381,20 +411,28 @@ static int class_newindex_event (lua_State* L)
                         lua_call(L,2,0);
                         return 0;
                     }
-                    lua_pop(L,1);                          /* stack: t k v mt tset */
+                    lua_pop(L,1);               /* stack: obj k v mt tset */
                 }
-                lua_pop(L,1);                           /* stack: t k v mt */
-                if (!lua_getmetatable(L,-1))            /* stack: t k v mt mt */
+                lua_pop(L,1);                   /* stack: obj k v mt */
+                
+                /* 查找 元表mt 的 元表mmt */
+                if (!lua_getmetatable(L,-1))    /* stack: obj k v mt mmt */
                     lua_pushnil(L);
-                lua_remove(L,-2);                       /* stack: t k v mt */
+                
+                /* 删除 元表mt */
+                /* 然后进行下一轮迭代 */
+                lua_remove(L,-2);               /* stack: obj k v mmt */
             }
         }
-        lua_settop(L,3);                          /* stack: t k v */
+        
+        /* 若没有找到set函数 */
+        lua_settop(L,3);                        /* stack: obj k v */
 
         /* then, store as a new field */
+        /* 新建一个设置函数 */
         storeatubox(L,1);
     }
-    else if (t== LUA_TTABLE)
+    else if (t== LUA_TTABLE)                    /* 若是一个表，则为在lua中扩展的 用户数据对象 */
     {
         /* stack : table key value */
         module_newindex_event(L);
