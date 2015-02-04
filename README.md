@@ -29,7 +29,7 @@ lauxlib.c则是从`PROJECTDIR/external/lua`拷贝，这里是__lua5.1__版本
 
 ## 说明
 
-| 缩写 | 意义     |
+| 缩写 | 意义     | 常量
 |------|----------|------------------
 | reg  | registry | LUA_REGISTRYINDEX
 | G    | global   | LUA_GOLOBALINDEX
