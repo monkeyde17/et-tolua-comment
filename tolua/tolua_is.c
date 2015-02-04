@@ -27,7 +27,7 @@
  *  @param L           状态机
  *  @param mt_indexa   表a位置
  *  @param mt_indexb   表b位置
- *  @param super_index 父类表位置
+ *  @param super_index 超类表位置
  *
  *  @return 是否表a和表相等
  *  @return 1 : 相等
@@ -44,18 +44,18 @@ TOLUA_API int tolua_fast_isa(lua_State *L, int mt_indexa, int mt_indexb, int sup
             lua_pushvalue(L, super_index);
         } else {
             lua_pushliteral(L,"tolua_super");
-            lua_rawget(L,LUA_REGISTRYINDEX);  /* stack: super */
+            lua_rawget(L,LUA_REGISTRYINDEX);    /* stack: super:=tolua_super */
         };
         /* 在父类中查找类a对应的表 */
-        lua_pushvalue(L,mt_indexa);       /* stack: super mta */
-        lua_rawget(L,-2);                 /* stack: super super[mta] */
+        lua_pushvalue(L,mt_indexa);             /* stack: super mta */
+        lua_rawget(L,-2);                       /* stack: super sta:=super[mta] */
         
         /* 在reg中查找类b对应的名字 */
-        lua_pushvalue(L,mt_indexb);       /* stack: super super[mta] mtb */
-        lua_rawget(L,LUA_REGISTRYINDEX);  /* stack: super super[mta] typenameB */
+        lua_pushvalue(L,mt_indexb);             /* stack: super sta mtb */
+        lua_rawget(L,LUA_REGISTRYINDEX);        /* stack: super sta nameb:=reg.mtb */
         
         /* 在类a的元表中查找类b的名字 */
-        lua_rawget(L,-2);                 /* stack: super super[mta] bool */
+        lua_rawget(L,-2);                       /* stack: super sta bool:=sta.nameb */
         
         /* 检查返回值 */
         result = lua_toboolean(L,-1);
@@ -81,13 +81,13 @@ TOLUA_API const char* tolua_typename (lua_State* L, int lo)
         lua_pushstring(L,"[no object]");
     else if (tag != LUA_TUSERDATA && tag != LUA_TTABLE) /* 除了用户数据和表之外 */
         lua_pushstring(L,lua_typename(L,tag));
-    else if (tag == LUA_TUSERDATA)      /* 对于用户数据 */
+    else if (tag == LUA_TUSERDATA)                      /* 对于用户数据 */
     {
-        if (!lua_getmetatable(L,lo))    /* 若没有元表 */
+        if (!lua_getmetatable(L,lo))                    /* 若没有元表 */
             lua_pushstring(L,lua_typename(L,tag));
-        else                            /* 若有元表 */
+        else                                            /* 若有元表 */
         {
-            /* 查询在registry中对应的值 -- 类名 */
+            /* 查询在reg中对应的值 -- 类名 */
             lua_rawget(L,LUA_REGISTRYINDEX);
             if (!lua_isstring(L,-1))
             {
@@ -96,9 +96,9 @@ TOLUA_API const char* tolua_typename (lua_State* L, int lo)
             }
         }
     }
-    else  /* is table */            /* 若是表 */
+    else                                                /* 若是表 */
     {
-        /* 在registry中查找 */
+        /* 在reg中查找 */
         lua_pushvalue(L,lo);
         lua_rawget(L,LUA_REGISTRYINDEX);
         if (!lua_isstring(L,-1))
@@ -110,7 +110,7 @@ TOLUA_API const char* tolua_typename (lua_State* L, int lo)
         {
             lua_pushstring(L,"class ");
             lua_insert(L,-2);
-            lua_concat(L,2); /* 即 "class xxxx" */
+            lua_concat(L,2);                            /* 即 "class xxxx" */
         }
     }
     return lua_tostring(L,-1);

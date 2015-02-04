@@ -497,7 +497,7 @@ static int class_call_event(lua_State* L) {
 };
 
 /**
- *  前提：栈中含有两个对象以供操作
+ *  前提：栈中含有两个对象以供操作op1，op2
  *
  *  直接查找第一个对象的元表中的元方法
  *
@@ -509,13 +509,11 @@ static int class_call_event(lua_State* L) {
  */
 static int do_operator (lua_State* L, const char* op)
 {
-    /* 要保证第一个参数为用户数据 */
-    if (lua_isuserdata(L,1))
+    if (lua_isuserdata(L,1))                    /* 要保证第一个参数为用户数据 */
     {
-        /* Try metatables */
         lua_pushvalue(L,1);                     /* stack: op1       op2 op1 */
-        while (lua_getmetatable(L,-1))
-        {   /* stack: op1 op2 op1 mt */
+        while (lua_getmetatable(L,-1))          /* stack: op1       op2 op1 mt */
+        {
             lua_remove(L,-2);                   /* stack: op1       op2 mt */
             lua_pushstring(L,op);               /* stack: op1       op2 mt key:=op2 */
             lua_rawget(L,-2);                   /* stack: obj:=op1  key mt func:=mt.key */
@@ -622,28 +620,26 @@ static int class_le_event (lua_State* L)
  */
 static int class_eq_event (lua_State* L)
 {
-    /* copying code from do_operator here to return false when no operator is found */
     if (lua_isuserdata(L,1))
     {
-        /* Try metatables */
-        lua_pushvalue(L,1);                        /* stack: op1 op2 op1 */
-        while (lua_getmetatable(L,-1))
-        {   /* stack: op1 op2 op1 mt */
-            lua_remove(L,-2);                      /* stack: op1 op2 mt */
-            lua_pushstring(L,".eq");               /* stack: op1 op2 mt key */
-            lua_rawget(L,-2);                      /* stack: obj key mt func */
+        lua_pushvalue(L,1);             /* stack: op1       op2         op1              */
+        while (lua_getmetatable(L,-1))  /* stack: op1       op2         op1 mt           */
+        {
+            lua_remove(L,-2);           /* stack: op1       op2         mt               */
+            lua_pushstring(L,".eq");    /* stack: op1       op2         mt  str:=".eq"   */
+            lua_rawget(L,-2);           /* stack: obj:=op1  key:=op2    mt  func:=mt.str */
             if (lua_isfunction(L,-1))
             {
                 lua_pushvalue(L,1);
                 lua_pushvalue(L,2);
+                /* 调用函数 func(obj, key) */
                 lua_call(L,2,1);
                 return 1;
             }
             lua_settop(L,3);
         }
-    } /* 到此为止都和 do_operator 一样 */
+    }                                   /* 到此为止都和 do_operator 一样 */
     
-
     /* 对于等于比较永远不会出错，成功调用，入栈0 */
     lua_settop(L, 3);
     lua_pushboolean(L, 0);
@@ -675,6 +671,8 @@ static int class_gc_event (lua_State* L)
 /**
  *  垃圾回收事件
  *
+ *  当需要垃圾回收的时候，第一个参数是用户数据obj
+ *
  *  @param L 状态机
  *
  *  @return 1 : 成功调用
@@ -691,34 +689,44 @@ TOLUA_API int class_gc_event (lua_State* L)
     lua_rawget(L,LUA_REGISTRYINDEX);
     */
     
-    lua_pushvalue(L, lua_upvalueindex(1));
-    lua_pushlightuserdata(L,u);
-    lua_rawget(L,-2);            /* stack: gc umt    */
-    lua_getmetatable(L,1);       /* stack: gc umt mt */
+    /* 获取第一个upvalue，reg.tolua_gc */
+    lua_pushvalue(L, lua_upvalueindex(1));  /* stack: gc:=reg.tolua_gc    */
+    lua_pushlightuserdata(L,u);             /* stack: gc u                */
+    lua_rawget(L,-2);                       /* stack: gc umt:=gc[u]       */
+    lua_getmetatable(L,1);                  /* stack: gc umt mt:=meta_obj */
+    
     /*fprintf(stderr, "checking type\n");*/
+    
     top = lua_gettop(L);
-    if (tolua_fast_isa(L,top,top-1, lua_upvalueindex(2))) /* make sure we collect correct type */
+    
+    /* 检查mt和umt是否是同一个对象 */
+    /* 获取第二个upvalue，reg.tolua_super */
+    if (tolua_fast_isa(L,top,top-1, lua_upvalueindex(2)))
     {
         /*fprintf(stderr, "Found type!\n");*/
-        /* get gc function */
+        
         lua_pushliteral(L,".collector");
-        lua_rawget(L,-2);           /* stack: gc umt mt collector */
-        if (lua_isfunction(L,-1)) {
+        /* 获取垃圾回收函数col */
+        lua_rawget(L,-2);                   /* stack: gc umt mt col:=mt[".collector"] */
+        if (lua_isfunction(L,-1)) {         /* 含有col函数 */
             /*fprintf(stderr, "Found .collector!\n");*/
-        }
-        else {
+        } else {                            /* 否则入栈默认垃圾回收函数 */
             lua_pop(L,1);
             /*fprintf(stderr, "Using default cleanup\n");*/
             lua_pushcfunction(L,tolua_default_collect);
         }
 
-        lua_pushvalue(L,1);         /* stack: gc umt mt collector u */
+        lua_pushvalue(L,1);                 /* stack: gc umt mt col u */
+        /* 执行垃圾回收函数 */
         lua_call(L,1,0);
 
-        lua_pushlightuserdata(L,u); /* stack: gc umt mt u */
-        lua_pushnil(L);             /* stack: gc umt mt u nil */
-        lua_rawset(L,-5);           /* stack: gc umt mt */
+        /* 表tolua_gc 中 删除对应 */
+        lua_pushlightuserdata(L,u);         /* stack: gc umt mt u */
+        lua_pushnil(L);                     /* stack: gc umt mt u nil */
+        lua_rawset(L,-5);                   /* stack: gc umt mt */
     }
+    
+    /* 清除栈 */
     lua_pop(L,3);
     return 0;
 }

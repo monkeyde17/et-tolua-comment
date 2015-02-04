@@ -510,7 +510,7 @@ static int tolua_bnd_getpeer(lua_State* L) {
  *              __le        = class_le_event,
  *              __eq        = class_eq_event,
  *              __call      = class_call_event,
- *              __gc        = register.tolua_gc_event,
+ *              __gc        = reg.tolua_gc_event,
  *      }
  *
  *  还有在 global 中做了以下事情：这些在lua中可以访问
@@ -601,33 +601,32 @@ TOLUA_API void tolua_open (lua_State* L)
         lua_newtable(L);
         lua_rawset(L,LUA_REGISTRYINDEX);
 
-        /* create gc_event closure */
-        /* 创建一个 闭包tolua_gc_event */
+        /* 创建 闭包tolua_gc_event */
         lua_pushstring(L, "tolua_gc_event");
-            /* 先将闭包的upvalue入栈 */
-            lua_pushstring(L, "tolua_gc");
-            lua_rawget(L, LUA_REGISTRYINDEX);
-            lua_pushstring(L, "tolua_super");
-            lua_rawget(L, LUA_REGISTRYINDEX);
+        /* 先将闭包的upvalue入栈 */
+        lua_pushstring(L, "tolua_gc");
+        lua_rawget(L, LUA_REGISTRYINDEX);
+        lua_pushstring(L, "tolua_super");
+        lua_rawget(L, LUA_REGISTRYINDEX);
         lua_pushcclosure(L, class_gc_event, 2);
         /* 注册 闭包gc_event */
         lua_rawset(L, LUA_REGISTRYINDEX);
 
-        /* 新建一个表，并重新注册各种元方法 */
+        /* 新建一个表，并注册各种元方法 */
         tolua_newmetatable(L,"tolua_commonclass");
 
         /* 貌似什么都没做，将全局表入栈，再出栈 */
         tolua_module(L,NULL,0);
         
         /* 其实就是将全局表(global)入栈 */
-        tolua_beginmodule(L,NULL); /* stack : global */
-            /* global.tolua = {} */
-            /* 查询名字空间，查到就返回对应表 */
-            /* 否则就新建一个表 */
-            tolua_module(L,"tolua",0);
+        tolua_beginmodule(L,NULL);              /* stack : G */
         
+        /* 查询名字空间，查到就返回对应表 */
+        /* 否则就新建一个表 */
+        /* G.tolua = {} */
+        tolua_module(L,"tolua",0);
             /* 将tolua入栈 */
-            tolua_beginmodule(L,"tolua"); /* stack : global tolua */
+            tolua_beginmodule(L,"tolua");       /* stack : G tolua:=G.tolua */
                 /* 即tolua.type = tolua_bnd_type 下同*/
                 tolua_function(L,"type",tolua_bnd_type);
                 tolua_function(L,"takeownership",tolua_bnd_takeownership);
@@ -635,12 +634,12 @@ TOLUA_API void tolua_open (lua_State* L)
                 tolua_function(L,"cast",tolua_bnd_cast);
                 tolua_function(L,"isnull",tolua_bnd_isnulluserdata);
                 tolua_function(L,"inherit", tolua_bnd_inherit);
-#ifdef LUA_VERSION_NUM /* lua 5.1 */
+#ifdef LUA_VERSION_NUM                          /* lua 5.1 */
                 tolua_function(L, "setpeer", tolua_bnd_setpeer);
                 tolua_function(L, "getpeer", tolua_bnd_getpeer);
 #endif
-            tolua_endmodule(L); /* stack : global */
-        tolua_endmodule(L); /* stack : <empty> */
+            tolua_endmodule(L);                 /* stack : G */
+        tolua_endmodule(L);                     /* stack : <empty> */
     }
     /* 恢复栈顶设置 */
     lua_settop(L,top);
@@ -892,13 +891,22 @@ TOLUA_API void tolua_module (lua_State* L, const char* name, int hasvar)
 }
 #endif
 
+/**
+ *  将垃圾回收函数加入reg.type中
+ *
+ *  reg.type[".collector"] = col
+ *
+ *  @param L    状态机
+ *  @param type 类型
+ *  @param col  垃圾回收函数
+ */
 static void push_collector(lua_State* L, const char* type, lua_CFunction col) {
 
     /* push collector function, but only if it's not NULL, or if there's no
        collector already */
     if (!col) return;
-    luaL_getmetatable(L,type);
-    lua_pushstring(L,".collector");
+    luaL_getmetatable(L,type);      /* stack : t:=reg.type */
+    lua_pushstring(L,".collector"); /* stack : t str:=".collector" */
     /*
     if (!col) {
         lua_pushvalue(L, -1);
@@ -910,10 +918,11 @@ static void push_collector(lua_State* L, const char* type, lua_CFunction col) {
         lua_pop(L, 1);
     };
     //    */
-    lua_pushcfunction(L,col);
+    lua_pushcfunction(L,col);       /* stack : t str col */
 
-    lua_rawset(L,-3);
-    lua_pop(L, 1);
+    /* t.str = col */
+    lua_rawset(L,-3);               /* stack : t */
+    lua_pop(L, 1);                  /* stack : <empty> */
 };
 
 /**
@@ -948,6 +957,7 @@ TOLUA_API void tolua_cclass (lua_State* L, const char* lname, const char* name, 
 
     lua_pushstring(L,lname);        /* stack: module lname */
 
+    /* 在reg.name中注册垃圾回收函数 */
     push_collector(L, name, col);
     
     /*
@@ -963,6 +973,8 @@ TOLUA_API void tolua_cclass (lua_State* L, const char* lname, const char* name, 
 
     /* now we also need to store the collector table for the const
        instances of the class */
+    
+    /* 在reg.cname中注册垃圾回收函数 */
     push_collector(L, cname, col);
     
     /*
@@ -980,10 +992,11 @@ TOLUA_API void tolua_cclass (lua_State* L, const char* lname, const char* name, 
  *  It adds additional base classes to a class (for multiple inheritance)
  *  (not for now)
  *
+ *  用于多重继承，目前没有用到
  *
- *  @param L    L description
- *  @param name name description
- *  @param base base description
+ *  @param L    状态机
+ *  @param name 子类
+ *  @param base 基类
  */
 TOLUA_API void tolua_addbase(lua_State* L, char* name, char* base) {
 
