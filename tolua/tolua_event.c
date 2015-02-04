@@ -513,12 +513,12 @@ static int do_operator (lua_State* L, const char* op)
     if (lua_isuserdata(L,1))
     {
         /* Try metatables */
-        lua_pushvalue(L,1);                     /* stack: op1 op2 op1w */
+        lua_pushvalue(L,1);                     /* stack: op1       op2 op1 */
         while (lua_getmetatable(L,-1))
         {   /* stack: op1 op2 op1 mt */
-            lua_remove(L,-2);                   /* stack: op1 op2 mt */
-            lua_pushstring(L,op);               /* stack: op1 op2 mt key */
-            lua_rawget(L,-2);                   /* stack: obj key mt func */
+            lua_remove(L,-2);                   /* stack: op1       op2 mt */
+            lua_pushstring(L,op);               /* stack: op1       op2 mt key:=op2 */
+            lua_rawget(L,-2);                   /* stack: obj:=op1  key mt func:=mt.key */
             if (lua_isfunction(L,-1))
             {
                 lua_pushvalue(L,1);
@@ -730,7 +730,7 @@ TOLUA_API int class_gc_event (lua_State* L)
  *
  *  前提：栈顶有表
  *
- *  设置表的__index和__newindex字段
+ *  设置表的index和newindex方法
  *
  *  @param L 状态机
  */
@@ -757,11 +757,11 @@ TOLUA_API int tolua_ismodulemetatable (lua_State* L)
 {
     int r = 0;
     /* 获取 表t 的 元表mt ，并入栈 */
-    if (lua_getmetatable(L,-1))         /* stack : t mt */
+    if (lua_getmetatable(L,-1))         /* stack: t mt */
     {
         /* 查询元表的__index的值 */
         lua_pushstring(L,"__index");
-        lua_rawget(L,-2);               /* stack : t mt idx:=mt.__index */
+        lua_rawget(L,-2);               /* stack: t mt idx:=mt.__index */
         
         /* 检查idx是否为 module_index_event */
         r = (lua_tocfunction(L,-1) == module_index_event);
@@ -785,9 +785,9 @@ TOLUA_API int tolua_ismodulemetatable (lua_State* L)
  */
 TOLUA_API void tolua_classevents (lua_State* L)
 {
-    /***********/
-    /* 运算函数 */
-    /***********/
+    /**************/
+    /* 添加查询函数 */
+    /**************/
     
     /* 绑定到__index */
     lua_pushstring(L,"__index");
