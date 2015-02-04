@@ -607,7 +607,7 @@ TOLUA_API void tolua_open (lua_State* L)
         lua_rawset(L,LUA_REGISTRYINDEX);
 
         /* create gc_event closure */
-        /* 创建一个闭包 tolua_gc_event */
+        /* 创建一个 闭包tolua_gc_event */
         lua_pushstring(L, "tolua_gc_event");
             /* 先将闭包的upvalue入栈 */
             lua_pushstring(L, "tolua_gc");
@@ -812,55 +812,62 @@ TOLUA_API void tolua_endmodule (lua_State* L)
  *  @param name 若为空则直接将全局表(global)入栈
  *  @param name PS : 不为空的前提是栈顶是全局表
  *
- *  @param hasvar   是否还有
+ *  @param hasvar   是否还有变量
  */
 #if 1
 TOLUA_API void tolua_module (lua_State* L, const char* name, int hasvar)
 {
-    
-    if (name)
+    if (name)                               /* 若name不为空，则表示栈顶为G */
     {
-        /* stack : global_t */
-        /* tolua module */
-        /* 在全局表中查询 global[name] 元素*/
+        /* 在全局表中查询 G[name] 元素*/
         lua_pushstring(L,name);
-        lua_rawget(L,-2); /* stack : global_t global_t.name */
+        lua_rawget(L,-2);                   /* stack : G table:=G.name */
         
         /* 检查是否存在 */
-        if (!lua_istable(L,-1))  /* check if module already exists */
+        if (!lua_istable(L,-1))             /* check if module already exists */
         {
             /* 将栈顶nil出栈 */
-            lua_pop(L,1);           /* stack : global_t */
+            lua_pop(L,1);                   /* stack : G */
             
             /* 新建一个表 table */
-            lua_newtable(L);        /* stack : global_t table */
-            lua_pushstring(L,name); /* stack : global_t table name */
-            lua_pushvalue(L,-2);    /* stack : global_t table name table */
-            /* global_t[name] = table */
-            lua_rawset(L,-4);       /* assing module into module */
-            /* stack : global_t table */
+            lua_newtable(L);                /* stack : G table */
+            lua_pushstring(L,name);         /* stack : G table name */
+            lua_pushvalue(L,-2);            /* stack : G table name table */
+            /* G[name] = table */
+            lua_rawset(L,-4);               /* stack : G table */
         }
     }
-    else
+    else                                    /* 若name为空，入栈G */
     {
-        /* global table */
-        /* 将全局表入栈 */
         lua_pushvalue(L,LUA_GLOBALSINDEX);
     }
-    if (hasvar)
+    
+    if (hasvar)                             /* 若含有共有变量 */
     {
-        if (!tolua_ismodulemetatable(L))  /* check if it already has a module metatable */
+        if (!tolua_ismodulemetatable(L))    /* 若还没有设置过模块元表 */
         {
-            /* create metatable to get/set C/C++ variable */
-            lua_newtable(L);
-            /* 设置栈顶表的__index和__newindex字段 */
+            /* 创建存储cpp成员变量的 表vt */
+            lua_newtable(L);                /* stack : G table vt */
+            
+            /* 设置 表vt 的index和newindex字段 */
             tolua_moduleevents(L);
-            if (lua_getmetatable(L,-2))
-                lua_setmetatable(L,-2);  /* set old metatable as metatable of metatable */
+            
+            /* 获得 表table 的 元表mt */
+            if (lua_getmetatable(L,-2))     /* stack : G table vt mt:=(table's meta) */
+                /* setmetatable(vt, mt) */
+                lua_setmetatable(L,-2);     /* stack : G table vt */
+            
+            /* 更新 表table 的元表为 表vt */
             lua_setmetatable(L,-2);
         }
+        /* 对于模块，必须要有一个模块元表 */
+        /* 对于模快老元表(上一个的元表)，设置成模块元表的元表 */
+        
+        /* 所以当访问一个模块的时候 */
+        /* 先在 模块元表 中查询方法，然后才是在 老元表 中查询 */
     }
-    lua_pop(L,1);               /* pop module */
+    /* 将模块表出栈 */
+    lua_pop(L,1);
 }
 #else
 TOLUA_API void tolua_module (lua_State* L, const char* name, int hasvar)
