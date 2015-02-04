@@ -26,3 +26,12 @@ lauxlib.c则是从`PROJECTDIR/external/lua`拷贝，这里是__lua5.1__版本
 - luaconf.h
 - lualib.h
 - lauxlib.c & h
+
+## 说明
+
+| 缩写 | 意义     |
+|------|----------|------------------
+| reg  | registry | LUA_REGISTRYINDEX
+| G    | global   | LUA_GOLOBALINDEX
+
+注释中有`reg.xxxx`或者`reg["xxxx"]`两种表示。
