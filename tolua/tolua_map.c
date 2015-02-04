@@ -69,11 +69,9 @@ static int tolua_newmetatable (lua_State* L, const char* name)
  * 
  *  将基类父类表所有内容加入到子类父类表中
  *
- *  1. 查询子类超类
- *      若没有在tolua_super新建一个
+ *  1. 获得子类超类，若没有在tolua_super新建一个
  *  2. 获得基类超类
  *  3. 遍历基类超类，并加入子类超类中
- *
  *
  *  @param L    状态机
  *  @param name 子类
@@ -151,55 +149,52 @@ static void mapsuper (lua_State* L, const char* name, const char* base)
 
 /**
  *  creates a 'tolua_ubox' table for base clases, and
+ *
  *  expects the metatable and base metatable on the stack
  *
- *  期望：栈顶子类元表和基类元表
+ *  期望：栈顶子类元表mt 和 基类元表bmt
  *
- *  若基类元表含有tolua_ubox表，则将基类元表的tolua_ubox表加入到子类元表中
+ *  将bmt的tolua_ubox加入到mt中，若bmt.tolua_ubox为空，则为mt新建一个，bmt不需要加入
  *
- *  若基类元表不含有tolua_ubox表，则创建一个tolua_ubox表再加入子类元表中
+ *  mt.tolua_ubox = bmt.tolua_ubox or {__mode = "v"}
  *
  *  @param L 状态机
  */
 static void set_ubox(lua_State* L) {
 
-    /* mt basemt */
-    if (!lua_isnil(L, -1)) { /* 若栈顶不为nil */
+    if (!lua_isnil(L, -1)) {        /* 若栈顶不为nil */
         lua_pushstring(L, "tolua_ubox");
-        /* 入栈basemt.tolua_ubox */
-        /* 入栈基类元表中的tolua_ubox */
-        lua_rawget(L,-2);
+        /* 获得 表bmt.tolua_ubox */
+        lua_rawget(L,-2);           /* stack: mt bmt bubox:=bmt.tolua_ubox */
     } else {
         lua_pushnil(L);
-    };
-    /* mt basemt base_ubox */
-    if (!lua_isnil(L,-1)) { /* 若栈顶不为 nil, 表明基类元表有tolua_ubox */
-        /* 则把子类元表中加入 tolua_ubox 字段，值为基类元表的tolua_ubox */
+    };                              /* stack: mt bmt bubox */
+    
+    if (!lua_isnil(L,-1)) {         /* 若基类元表有tolua_ubox */
+        /* mt.tolua_ubox = bubox */
         lua_pushstring(L, "tolua_ubox");
-        lua_insert(L, -2);
-        /* mt basemt key ubox */
+        lua_insert(L, -2);          /* stack: mt bmt str:="tolua_ubox" bubox */
         lua_rawset(L,-4);
-        /* (mt with ubox) basemt */
-    } else { /* 栈顶为nil，表明基类元表没有tolua_ubox，则需要给子类元表创建一个tolua_ubox表 */
-        /* mt basemt nil */
+    } else {                        /* 若基类元表没有tolua_ubox，则创建一个 */
         /* 先将栈顶nil出栈 */
-        lua_pop(L, 1);
+        lua_pop(L, 1);              /* stack: mt bmt */
         
         lua_pushstring(L,"tolua_ubox");
-        lua_newtable(L);
-            /* make weak value metatable for ubox table to allow userdata to be */
-            /* garbage-collected */
-            /* 创建一个弱引用表 {__mode = "v"} */
-            lua_newtable(L);
-            lua_pushliteral(L, "__mode");
-            lua_pushliteral(L, "v");
-            lua_rawset(L, -3);    /* stack: string ubox mt */
-        /* 将这个值弱引用表设置成tolua_ubox的元表 */
-        lua_setmetatable(L, -2);  /* stack:mt basemt string ubox */
+        /* 新建 表bubox */
+        lua_newtable(L);            /* stack: mt bmt str:="tolua_ubox" bubox */
         
-        /* 将新建的tolua_ubox加入到基类元表之中 */
+        /* 新建 值弱引用表 {__mode = "v"} */
+        lua_newtable(L);
+        lua_pushliteral(L, "__mode");
+        lua_pushliteral(L, "v");
+        lua_rawset(L, -3);          /* stack: mt bmt str bubox bbmt:={__mode="v"} */
+        
+        /* 将 表bubox 的元表设置成 表bbmt */
+        lua_setmetatable(L, -2);    /* stack: mt bmt str bubox */
+        
+        /* 将 mt.str = bubox */
         lua_rawset(L,-4);
-    };
+    };                              /* stack: mt bmt */
 
 };
 
@@ -208,7 +203,8 @@ static void set_ubox(lua_State* L) {
  *
  *  It sets 'name' as derived from 'base' by setting 'base' as metatable of 'name'
  *
- *  从基类继承，即设置tolua_ubox表，并设置基类元表为子类的元表
+ *  1. 子类元表 从 基类元表获得tolua_ubox
+ *  2. 设置 子类 的元表为 基类
  *
  *  @param L    状态机
  *  @param name 子类名字
@@ -218,31 +214,29 @@ static void mapinheritance (lua_State* L, const char* name, const char* base)
 {
     /* set metatable inheritance */
     
-    /* 获得 registry.name */
-    luaL_getmetatable(L,name);
+    /* 获得 表reg.name */
+    luaL_getmetatable(L,name);          /* stack : mt:=reg.name */
     
-    if (base && *base)  /* 当需要从 base 继承 */
-        /* 获得 registry.base */
-        luaL_getmetatable(L,base);
-    else                /* 不需要继承，name就是父类 */
+    if (base && *base)                  /* 当需要从 基类base 继承 */
+        /* 获得 表reg.base */
+        luaL_getmetatable(L,base);      /* stack : mt bmt:=reg.base */
+    else                                /* 从公共父类继承 */
     {
-        /* 已经有元表 */
-        if (lua_getmetatable(L, -1)) { /* already has a mt, we don't overwrite it */
-            lua_pop(L, 2);
+        if (lua_getmetatable(L, -1)) {  /* 子类已经有元表，则不需要再设置 */
+            lua_pop(L, 2);              /* stack : <empty> */
             return;
         };
-        /* 获得 registry.tolua_commonclass */
-        luaL_getmetatable(L,"tolua_commonclass"); /* stack : reg.name reg.tolua_commonclass */
-    };
+        /* 获得 公共父类tolua_commonclass */
+        luaL_getmetatable(L,"tolua_commonclass");
+    };                                  /* stack : mt bmt */
     
-    /* 在元表中加入tolua_ubox表 */
+    /* mt.ubox = bmt.ubox or {__mode="v"} */
     set_ubox(L);
 
-    /* 将reg.tolua_commonclass设置成reg.name的元表 */
+    /* 将 表mt 的元表设置成 表bmt */
     lua_setmetatable(L,-2);
     
-    /* 清空栈 */
-    lua_pop(L,1);
+    lua_pop(L,1);                       /* stack : <empty> */
 }
 
 /**
@@ -537,8 +531,7 @@ TOLUA_API void tolua_open (lua_State* L)
     lua_pushstring(L,"tolua_opened");
     lua_rawget(L,LUA_REGISTRYINDEX);
     
-    if (!lua_isboolean(L,-1)) /* 检查是否已经打开过 */
-    {
+    if (!lua_isboolean(L,-1)) /* 检查是否已经打开过 */ {
         /* 将tolua_opened设置为true */
         /* 标记已经配置好tolua环境 */
         lua_pushstring(L,"tolua_opened");
@@ -562,11 +555,13 @@ TOLUA_API void tolua_open (lua_State* L)
         /* 表t 的键都是 userdata对象 */
         /* 所以需要 表t 是一个键弱引用表 */
         lua_newtable(L);
-            /* 将 表mt 的__mode字段设置成"k" */
-            /* 表示 表mt 的键是若引用的 */
-            lua_pushliteral(L, "__mode");
-            lua_pushliteral(L, "k");
-            lua_rawset(L, -3);              /* stack: string peers mt */
+        
+        /* 将 表mt 的__mode字段设置成"k" */
+        /* 表示 表mt 的键是若引用的 */
+        lua_pushliteral(L, "__mode");
+        lua_pushliteral(L, "k");
+        lua_rawset(L, -3);                  /* stack: string peers mt */
+        
         /* 将 表t 的元表设置成 表mt */
         lua_setmetatable(L, -2);            /* stack: string peers */
     
@@ -578,15 +573,15 @@ TOLUA_API void tolua_open (lua_State* L)
         /* 表tolua_ubox 是 对象地址 到 对象数据 的映射 */
         lua_pushstring(L,"tolua_ubox");
         lua_newtable(L);
-        /* make weak value metatable for ubox table to allow userdata to be
-           garbage-collected */
         /* 值弱引用表能够让用户数据被垃圾回收 */
         lua_newtable(L);
-            /* 将 表mt 的__mode字段设置成"v" */
-            /* 表示 表mt 的值是弱引用的 */
-            lua_pushliteral(L, "__mode");
-            lua_pushliteral(L, "v");
-            lua_rawset(L, -3);              /* stack: string ubox mt */
+        
+        /* 将 表mt 的__mode字段设置成"v" */
+        /* 表示 表mt 的值是弱引用的 */
+        lua_pushliteral(L, "__mode");
+        lua_pushliteral(L, "v");
+        lua_rawset(L, -3);                  /* stack: string ubox mt */
+        
         lua_setmetatable(L, -2);            /* stack: string ubox */
         /* 注册 表tolua_ubox */
         lua_rawset(L,LUA_REGISTRYINDEX);
@@ -740,9 +735,9 @@ TOLUA_API int tolua_register_gc (lua_State* L, int lo)
  *
  *  It maps 'const type' as being also a 'type'
  *
- *  在reg中加入两个类型。
- *  
- *  并且在tolua_super中加入
+ *  在reg中加入两个类型type和const type
+ *
+ *  并且将type从const type继承？
  *
  *  @param L    状态机
  *  @param type 类型
@@ -926,11 +921,14 @@ static void push_collector(lua_State* L, const char* type, lua_CFunction col) {
  *
  *  It maps a C class, setting the appropriate inheritance and super classes.
  *
+ *
+ *  期望：栈顶有模块表
+ *
  *  @param L     状态机
- *  @param lname l
- *  @param name  n
- *  @param base  b
- *  @param col   c
+ *  @param lname 模块中的名字
+ *  @param name  子类名字
+ *  @param base  基类名字
+ *  @param col   垃圾回收函数
  */
 TOLUA_API void tolua_cclass (lua_State* L, const char* lname, const char* name, const char* base, lua_CFunction col)
 {
@@ -939,29 +937,34 @@ TOLUA_API void tolua_cclass (lua_State* L, const char* lname, const char* name, 
     strncat(cname,name,120);
     strncat(cbase,base,120);
 
+    /* cname.ubox = name.ubox = base.ubox */
     mapinheritance(L,name,base);
     mapinheritance(L,cname,name);
 
+    /* super.cname <- super.cbase */
     mapsuper(L,cname,cbase);
+    /* super.name <- super.base */
     mapsuper(L,name,base);
 
-    lua_pushstring(L,lname);
+    lua_pushstring(L,lname);        /* stack: module lname */
 
     push_collector(L, name, col);
+    
     /*
     luaL_getmetatable(L,name);
     lua_pushstring(L,".collector");
     lua_pushcfunction(L,col);
-
     lua_rawset(L,-3);
     */
 
-    luaL_getmetatable(L,name);
-    lua_rawset(L,-3);              /* assign class metatable to module */
+    luaL_getmetatable(L,name);      /* stack : module lname mt:=reg.name */
+    /* module.lname = mt */
+    lua_rawset(L,-3);               /* stack : module */
 
     /* now we also need to store the collector table for the const
        instances of the class */
     push_collector(L, cname, col);
+    
     /*
     luaL_getmetatable(L,cname);
     lua_pushstring(L,".collector");
@@ -969,8 +972,6 @@ TOLUA_API void tolua_cclass (lua_State* L, const char* lname, const char* name, 
     lua_rawset(L,-3);
     lua_pop(L,1);
     */
-
-
 }
 
 /**
@@ -980,9 +981,9 @@ TOLUA_API void tolua_cclass (lua_State* L, const char* lname, const char* name, 
  *  (not for now)
  *
  *
- *  @param L    <#L description#>
- *  @param name <#name description#>
- *  @param base <#base description#>
+ *  @param L    L description
+ *  @param name name description
+ *  @param base base description
  */
 TOLUA_API void tolua_addbase(lua_State* L, char* name, char* base) {
 
